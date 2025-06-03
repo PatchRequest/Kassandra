@@ -41,7 +41,7 @@ This public release of the agent does not include all implemented obfuscation an
 
 * **Not yet complete:**
 
-  * Initial check-in procedure
+  * Full Initial check-in procedure
   * Full encryption of transport and task responses
 
 ## 🐍 Builder

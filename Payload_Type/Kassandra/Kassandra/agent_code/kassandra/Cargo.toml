@@ -1,0 +1,57 @@
+[package]
+name = "kassandra"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+once_cell = "1.19"
+serde = { version = "1.0", features = ["derive"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+serde_json = "1.0"
+base64 = "0.22.1"
+chrono = "0.4"
+lazy_static = "1.5.0"
+coffeeldr = "0.2.0"
+windows-sys = { version = "0.48", features = [
+  "Win32_System_Threading",
+  "Win32_System_Diagnostics_Debug",
+  "Win32_Foundation",
+  # …only the Win32 sub-APIs `coffeeldr` actually uses
+] }
+clroxide = "1.1.1"
+windows = { version = "0.61.1", features = ["Win32", "Win32_System", "Win32_System_Com", "Win32_System_Memory"] }
+ntapi = "0.4.1"
+winapi = { version = "0.3", features = [
+    "minwindef",
+    "ntdef",
+    "processthreadsapi",
+    "errhandlingapi",
+    "winnt",
+    "winbase",   # for LookupAccountSidW
+    "lmcons",    # for UNLEN
+    "heapapi",
+    "memoryapi",
+    "synchapi",
+    "threadpoollegacyapiset",
+    "processthreadsapi",  # vermutlich eh schon aktiv
+    "winnt",               # falls du mit `PAGE_*`, `HANDLE`, etc. arbeitest
+    "sddl",
+    "securitybaseapi",
+    "processthreadsapi",
+    "winbase",
+    "handleapi", # evtl. nötig
+    "minwindef", # häufig gebraucht
+] }
+tiny_http = "0.12"
+
+[build-dependencies]
+cc = "1.2.19"
+nasm-rs = "0.3.0"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+#panic = "abort"

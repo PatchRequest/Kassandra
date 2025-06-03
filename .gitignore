@@ -1,0 +1,7 @@
+__pycache__/
+.DS_Store
+main
+.idea
+mythic_go_services.bin
+Payload_Type/Kassandra/Kassandra/agent_code/kassandra/target/
+target/

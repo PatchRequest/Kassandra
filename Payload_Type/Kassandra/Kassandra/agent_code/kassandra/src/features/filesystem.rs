@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use std::io::Write; // <- Add this
+use std::io::Write;
 
 pub fn handle_fs_command(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     let command = task.get("command")

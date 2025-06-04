@@ -20,7 +20,7 @@ class PSCommand(CommandBase):
     cmd = "ps"
     needs_admin = False
     help_cmd = "ps"
-    description = "Get all Procsses information"
+    description = "Get all Processes information"
     version = 1
     author = "@PatchRequest"
     attackmapping = ["T1083"]

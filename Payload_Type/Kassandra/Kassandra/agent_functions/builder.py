@@ -8,6 +8,7 @@ from distutils.dir_util import copy_tree
 import asyncio
 import os
 import time
+import base64
 import subprocess
 
 class KassandraAgent(PayloadType):

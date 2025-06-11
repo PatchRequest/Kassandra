@@ -7,7 +7,7 @@ use winapi::um::winnt::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_EXPORT_DIRECTORY, IMAGE_NT_HEADERS64,
     IMAGE_NT_SIGNATURE,
 };
-
+use std::ptr;
 const SEED: u32 = 0xEDB88320;
 const UP: i32 = -32;
 const DOWN: i32 = 32;
@@ -38,6 +38,18 @@ static mut G_NTDLL_CONF: NtdllConfig = NtdllConfig {
     dw_number_of_names: 0,
     u_module: 0,
 };
+
+impl Default for NtSyscall {
+    fn default() -> Self {
+        NtSyscall {
+            dw_ssn: 0,
+            p_syscall_inst_address: ptr::null_mut(),
+            dw_syscall_hash: 0,
+            p_syscall_address: ptr::null_mut(),
+        }
+    }
+}
+
 
 pub fn crc32h(message: &str) -> u32 {
     let g0 = SEED;

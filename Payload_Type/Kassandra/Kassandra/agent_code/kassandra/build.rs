@@ -1,5 +1,4 @@
 use std::env;
-use std::path::PathBuf;
 
 fn main() {
     let target = env::var("TARGET").expect("Missing TARGET environment variable");

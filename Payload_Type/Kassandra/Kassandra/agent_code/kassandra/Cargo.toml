@@ -29,21 +29,20 @@ winapi = { version = "0.3", features = [
     "processthreadsapi",
     "errhandlingapi",
     "winnt",
-    "winbase",   # for LookupAccountSidW
-    "lmcons",    # for UNLEN
+    "winbase",
+    "lmcons",
     "heapapi",
     "memoryapi",
     "synchapi",
     "threadpoollegacyapiset",
-    "processthreadsapi",  # vermutlich eh schon aktiv
-    "winnt",               # falls du mit `PAGE_*`, `HANDLE`, etc. arbeitest
     "sddl",
     "securitybaseapi",
-    "processthreadsapi",
-    "winbase",
-    "handleapi", # evtl. nötig
-    "minwindef", # häufig gebraucht
+    "handleapi",
+    "windef",    # <- for HDC, HBITMAP etc.
+    "wingdi",    # <- for BitBlt, CreateCompatibleDC, etc.
+    "winuser"    # <- for GetDC, GetSystemMetrics, etc.
 ] }
+image = { version = "0.24", default-features = false, features = ["png", "ico"] }
 tiny_http = "0.12"
 
 [build-dependencies]

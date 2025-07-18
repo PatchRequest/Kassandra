@@ -39,6 +39,11 @@ This public release of the agent does not include all implemented obfuscation an
 
   * Run arbitrary **PowerShell commands**
 
+* **Reconnaissance:**
+
+  * Take screenshots (GDI-based capture, PNG-encoded)
+
+
 ## 🔧 Notes
 
 * **Not yet complete:**

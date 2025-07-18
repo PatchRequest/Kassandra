@@ -16,7 +16,6 @@ mod features {
     pub mod pivot;
 }
 mod hellshall;
-mod ekko;
 mod selfprotect;
 
 use std::{thread, time::Duration};

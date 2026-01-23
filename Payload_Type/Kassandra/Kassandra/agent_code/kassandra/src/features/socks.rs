@@ -80,9 +80,28 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
         let target_addr = format!("{}:{}", addr, port);
         println!("[DEBUG] target_addr: {}", target_addr);
+        println!("[DEBUG] payload bytes: {:?}", &payload[..std::cmp::min(payload.len(), 32)]);
+        println!("[DEBUG] atyp: {}, addr: {}, port: {}", atyp, addr, port);
 
-        let stream = TcpStream::connect(target_addr)?;
-        conns.insert(server_id, stream.try_clone()?);
+        let stream = match TcpStream::connect(&target_addr) {
+            Ok(s) => {
+                println!("[DEBUG] TcpStream::connect succeeded");
+                s
+            },
+            Err(e) => {
+                println!("[DEBUG] TcpStream::connect failed: {:?}", e);
+                return Err(e.into());
+            }
+        };
+        println!("[DEBUG] About to try_clone");
+        let cloned = match stream.try_clone() {
+            Ok(s) => s,
+            Err(e) => {
+                println!("[DEBUG] try_clone failed: {:?}", e);
+                return Err(e.into());
+            }
+        };
+        conns.insert(server_id, cloned);
         let stream = conns.get_mut(&server_id).unwrap();
 
         // Build full SOCKS5 CONNECT reply

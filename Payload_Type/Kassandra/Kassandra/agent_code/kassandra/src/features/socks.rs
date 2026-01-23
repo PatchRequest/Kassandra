@@ -131,11 +131,25 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         // Write incoming SOCKS payload to TCP stream
         stream.write_all(&payload)?;
 
-        // Read response
-        let mut buf = [0u8; 4096];
-        let n = stream.read(&mut buf)?;
+        // Set non-blocking and read all available data
+        stream.set_nonblocking(true)?;
+        let mut response_data = Vec::new();
+        let mut buf = [0u8; 8192];
 
-        let b64_response = base64::encode(&buf[..n]);
+        // Small delay to let data arrive
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        loop {
+            match stream.read(&mut buf) {
+                Ok(0) => break, // Connection closed
+                Ok(n) => response_data.extend_from_slice(&buf[..n]),
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        stream.set_nonblocking(false)?;
+
+        let b64_response = base64::encode(&response_data);
         let response = serde_json::json!({
             "action": "post_response",
             "socks": [

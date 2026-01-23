@@ -13,7 +13,11 @@ pub fn handle_fs_command(task: &serde_json::Value) -> Result<(), Box<dyn std::er
         .as_str()
         .ok_or("parameters is not a string")?;
 
-    let parsed_params: serde_json::Value = serde_json::from_str(raw_params)?;
+    let parsed_params: serde_json::Value = if raw_params.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str(raw_params)?
+    };
     // Handle arg1
     let raw_path1 = parsed_params.get("arg1")
         .and_then(|v| v.as_str())

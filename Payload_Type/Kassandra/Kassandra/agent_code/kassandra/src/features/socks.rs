@@ -129,10 +129,15 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(stream) = conns.get_mut(&server_id) {
         // Write incoming SOCKS payload to TCP stream
-        stream.write_all(&payload)?;
+        if let Err(e) = stream.write_all(&payload) {
+            println!("[SOCKS] Write error, removing connection: {:?}", e);
+            drop(conns);
+            CONNECTIONS.lock()?.remove(&server_id);
+            return Err(e.into());
+        }
 
         // Set non-blocking and read all available data
-        stream.set_nonblocking(true)?;
+        let _ = stream.set_nonblocking(true);
         let mut response_data = Vec::new();
         let mut buf = [0u8; 8192];
 
@@ -141,13 +146,20 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             match stream.read(&mut buf) {
-                Ok(0) => break, // Connection closed
+                Ok(0) => {
+                    // Connection closed by remote
+                    println!("[SOCKS] Connection closed by remote");
+                    break;
+                }
                 Ok(n) => response_data.extend_from_slice(&buf[..n]),
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
-                Err(e) => return Err(e.into()),
+                Err(e) => {
+                    println!("[SOCKS] Read error: {:?}", e);
+                    break;
+                }
             }
         }
-        stream.set_nonblocking(false)?;
+        let _ = stream.set_nonblocking(false);
 
         let b64_response = base64::encode(&response_data);
         let response = serde_json::json!({

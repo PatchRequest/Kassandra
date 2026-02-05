@@ -22,11 +22,16 @@ pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
 
     let tasks = json.get("tasks").ok_or("No tasks field")?;
     for task in tasks.as_array().ok_or("Tasks not array")? {
-        handleTask(task)?;
+        if let Err(e) = handleTask(task) {
+            eprintln!("[TASK] Error handling task: {:?}", e);
+        }
     }
     if let Some(socks) = json.get("socks") {
         for sock in socks.as_array().ok_or("Socks not array")? {
-            socks::handle_socks(sock)?;
+            if let Err(e) = socks::handle_socks(sock) {
+                println!("[SOCKS] Error handling socks: {:?}", e);
+                // Continue processing other socks messages
+            }
         }
     }
     Ok(())

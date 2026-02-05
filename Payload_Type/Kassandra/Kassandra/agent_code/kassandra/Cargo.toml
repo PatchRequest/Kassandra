@@ -44,6 +44,7 @@ winapi = { version = "0.3", features = [
 ] }
 image = { version = "0.24", default-features = false, features = ["png", "ico"] }
 tiny_http = "0.12"
+zip = "0.6"
 
 [build-dependencies]
 cc = "1.2.19"

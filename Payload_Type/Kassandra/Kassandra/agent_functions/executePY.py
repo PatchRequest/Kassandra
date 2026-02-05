@@ -13,6 +13,15 @@ class ExecutePYArguments(TaskArguments):
                 description="python script to upload",
             ),
             CommandParameter(
+                name="python_embed_id",
+                type=ParameterType.File,
+                description="optional Python embeddable distribution zip",
+                parameter_group_info=[ParameterGroupInfo(
+                    required=False,
+                    ui_position=2
+                )],
+            ),
+            CommandParameter(
                 name="parameters",
                 type=ParameterType.String,
                 description="script parameters",
@@ -52,6 +61,14 @@ class ExecutePYCommand(CommandBase):
                     AgentFileID=taskData.args.get_arg("file"),
                 )
             )
+            python_embed_id = taskData.args.get_arg("python_embed_id")
+            if python_embed_id is not None and len(python_embed_id) > 0:
+                await SendMythicRPCFileSearch(
+                    MythicRPCFileSearchMessage(
+                        TaskID=taskData.Task.ID,
+                        AgentFileID=python_embed_id,
+                    )
+                )
         except Exception as e:
             raise Exception(
                 "Error from Mythic: "

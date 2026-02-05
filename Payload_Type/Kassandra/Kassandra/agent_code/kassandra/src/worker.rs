@@ -84,3 +84,50 @@ pub fn run_dot_worker() {
         }
     }
 }
+
+pub fn run_py_worker() {
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input).expect("worker: failed to read stdin");
+
+    let data: Value = serde_json::from_str(&input).expect("worker: failed to parse input");
+    let file_bytes = general_purpose::STANDARD
+        .decode(data["file_bytes"].as_str().expect("worker: missing file_bytes"))
+        .expect("worker: failed to decode file_bytes");
+    let params_str = data["parameters"].as_str().unwrap_or("").trim().to_string();
+
+    let mut output = String::new();
+
+    let tmp_dir = std::env::temp_dir();
+    let script_path = tmp_dir.join("kassandra_exec.py");
+    if let Err(e) = std::fs::write(&script_path, &file_bytes) {
+        eprint!("PY write error: {:?}", e);
+        std::process::exit(1);
+    }
+
+    let mut cmd = std::process::Command::new("python");
+    cmd.arg(&script_path);
+    if !params_str.is_empty() {
+        cmd.args(params_str.split_whitespace());
+    }
+
+    match cmd.output() {
+        Ok(res) => {
+            output.push_str(&String::from_utf8_lossy(&res.stdout));
+            if !res.status.success() {
+                let stderr = String::from_utf8_lossy(&res.stderr);
+                if !stderr.is_empty() {
+                    output.push_str("\nstderr: ");
+                    output.push_str(&stderr);
+                }
+                eprint!("{}", output);
+                let code = res.status.code().unwrap_or(1);
+                std::process::exit(code);
+            }
+            print!("{}", output);
+        }
+        Err(e) => {
+            eprint!("PY exec error: {:?}", e);
+            std::process::exit(1);
+        }
+    }
+}

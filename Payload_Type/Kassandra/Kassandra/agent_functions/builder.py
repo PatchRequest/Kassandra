@@ -39,7 +39,8 @@ class KassandraAgent(PayloadType):
     build_steps = [                                                   # Build steps
         BuildStep(step_name="Gathering Files", step_description="Making sure all commands have backing files on disk"),
         BuildStep(step_name="Applying configuration", step_description="Stamping in configuration values"),
-        BuildStep(step_name="Compiling", step_description="Stamping in configuration values")
+        BuildStep(step_name="Checking", step_description="Running cargo check for syntax errors"),
+        BuildStep(step_name="Compiling", step_description="Compiling the agent")
     ]
 
     async def build(self) -> BuildResponse:
@@ -120,48 +121,89 @@ class KassandraAgent(PayloadType):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, stderr = await proc.communicate()
-        print(stdout)
-        print(stderr)
+        await proc.communicate()
 
+        src_path = pathlib.Path(agent_build_path.name) / "kassandra" / "src"
         if output_format == "dll":
-            # Patch Cargo.toml for DLL build
+            # Remove main.rs so cargo only sees the lib target
+            (src_path / "main.rs").unlink(missing_ok=True)
+            # Add [lib] section to Cargo.toml for cdylib output
             cargo_path = pathlib.Path(agent_build_path.name) / "kassandra" / "Cargo.toml"
-            with open(cargo_path, "r") as f:
-                cargo_content = f.read()
-            # Switch reqwest to rustls — native SChannel fails in DLL context (AcceptSecurityContext)
-            cargo_content = cargo_content.replace(
-                'reqwest = { version = "0.12", features = ["blocking", "json"] }',
-                'reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }'
-            )
-            # Add [lib] section for cdylib output
-            cargo_content += '\n[lib]\ncrate-type = ["cdylib"]\npath = "src/lib.rs"\n'
-            with open(cargo_path, "w") as f:
-                f.write(cargo_content)
-            command = (
-                f"cargo +nightly-2025-04-30 build --release --lib --target x86_64-pc-windows-gnu --manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
-            )
-            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.dll"
+            with open(cargo_path, "a") as f:
+                f.write('\n[lib]\ncrate-type = ["cdylib"]\npath = "src/lib.rs"\n')
         else:
-            command = (
-                f"cargo +nightly-2025-04-30 build --release --bin kassandra --target x86_64-pc-windows-gnu --manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
-            )
-            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
+            # Remove lib.rs so cargo only sees the bin target
+            (src_path / "lib.rs").unlink(missing_ok=True)
+
+        manifest = f"--manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
+        target = "--target x86_64-pc-windows-gnu"
+        toolchain = "+nightly-2025-04-30"
+
+        # --- cargo check ---
+        if output_format == "dll":
+            check_command = f"cargo {toolchain} check --lib {target} {manifest}"
+        else:
+            check_command = f"cargo {toolchain} check {target} {manifest}"
 
         proc = await asyncio.create_subprocess_shell(
-            command,
+            check_command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-
         stdout, stderr = await proc.communicate()
-        print(stdout)
-        print(stderr)
+        stdout_str = stdout.decode(errors="replace")
+        stderr_str = stderr.decode(errors="replace")
+
+        if proc.returncode != 0:
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Checking",
+                StepStdout=f"cargo check failed:\n{stderr_str}",
+                StepSuccess=False
+            ))
+            resp.status = BuildStatus.Error
+            resp.build_message = stderr_str
+            return resp
+
+        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+            PayloadUUID=self.uuid,
+            StepName="Checking",
+            StepStdout="cargo check passed",
+            StepSuccess=True
+        ))
+
+        # --- cargo build ---
+        if output_format == "dll":
+            build_command = f"cargo {toolchain} build --release --lib {target} {manifest}"
+            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.dll"
+        else:
+            build_command = f"cargo {toolchain} build --release {target} {manifest}"
+            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
+
+        proc = await asyncio.create_subprocess_shell(
+            build_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+        stdout_str = stdout.decode(errors="replace")
+        stderr_str = stderr.decode(errors="replace")
+
+        if proc.returncode != 0:
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Compiling",
+                StepStdout=f"Compilation failed:\n{stderr_str}",
+                StepSuccess=False
+            ))
+            resp.status = BuildStatus.Error
+            resp.build_message = stderr_str
+            return resp
 
         await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
             PayloadUUID=self.uuid,
             StepName="Compiling",
-            StepStdout=f"Successfully compiled Kassandra{stdout}{stderr}",
+            StepStdout=f"Successfully compiled Kassandra\n{stderr_str}",
             StepSuccess=True
         ))
         pfx_path = generate_self_signed_cert()

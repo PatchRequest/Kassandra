@@ -201,5 +201,10 @@ pub fn checkin() {
     });
 
     let json_str = serde_json::to_string(&checkin_data).unwrap();
-    transport::send_request(&json_str);
+    if let Ok(resp) = transport::send_request_with_response(&json_str) {
+        if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
+            let mut uuid = config::UUID.write().unwrap();
+            *uuid = id.to_string();
+        }
+    }
 }

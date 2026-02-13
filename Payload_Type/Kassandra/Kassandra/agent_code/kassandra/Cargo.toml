@@ -52,6 +52,5 @@ nasm-rs = "0.3.0"
 
 [profile.release]
 strip = true
-lto = true
-codegen-units = 1
+lto = false
 #panic = "abort"

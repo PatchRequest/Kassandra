@@ -39,6 +39,7 @@ class UploadCommand(CommandBase):
     author = "@PatchRequest"
     attackmapping = ["T1132", "T1030", "T1105"]
     argument_class = UploadArguments
+    supported_ui_features = ["file_browser:upload"]
 
 
     async def create_go_tasking(self, taskData: MythicCommandBase.PTTaskMessageAllData) -> MythicCommandBase.PTTaskCreateTaskingMessageResponse:

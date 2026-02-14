@@ -153,6 +153,31 @@ class CDCommand(CommandBase):
         return PTTaskProcessResponseMessageResponse(TaskID=task.Task.ID, Success=True)
 
 
+class RMArguments(TaskArguments):
+    def __init__(self, command_line, **kwargs):
+        super().__init__(command_line, **kwargs)
+        self.args = [
+            CommandParameter(
+                name="arg1",
+                type=ParameterType.String,
+                description="Path to remove",
+            ),
+        ]
+
+    async def parse_arguments(self):
+        if len(self.command_line) == 0:
+            raise ValueError("Must supply a path")
+        self.add_arg("arg1", self.command_line)
+
+    async def parse_dictionary(self, dictionary_arguments):
+        if "full_path" in dictionary_arguments:
+            self.add_arg("arg1", dictionary_arguments["full_path"])
+        elif "arg1" in dictionary_arguments:
+            self.add_arg("arg1", dictionary_arguments["arg1"])
+        else:
+            self.load_args_from_dictionary(dictionary_arguments)
+
+
 class RMCommand(CommandBase):
     cmd = "rm"
     needs_admin = False
@@ -161,7 +186,8 @@ class RMCommand(CommandBase):
     version = 1
     author = "@PatchRequest"
     attackmapping = ["T1083"]
-    argument_class = SingleFilesystemArguments
+    argument_class = RMArguments
+    supported_ui_features = ["file_browser:remove", "file_browser:remove_folder"]
     attributes = CommandAttributes(supported_os=[SupportedOS.Windows])
 
     async def create_tasking(self, task: MythicTask) -> MythicTask:

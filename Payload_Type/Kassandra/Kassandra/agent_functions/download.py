@@ -35,7 +35,13 @@ class DownloadArguments(TaskArguments):
 
         if filename != "":
             self.args[0].value = filename
-        
+
+    async def parse_dictionary(self, dictionary_arguments):
+        if "full_path" in dictionary_arguments:
+            self.add_arg("file", dictionary_arguments["full_path"])
+        else:
+            self.load_args_from_dictionary(dictionary_arguments)
+
 
 class DownloadCommand(CommandBase):
     cmd = "download"
@@ -48,6 +54,7 @@ class DownloadCommand(CommandBase):
     parameters = []
     attackmapping = ["T1020", "T1030", "T1041"]
     argument_class = DownloadArguments
+    supported_ui_features = ["file_browser:download"]
 
 
     async def create_go_tasking(self, taskData: PTTaskMessageAllData) -> PTTaskCreateTaskingMessageResponse:

@@ -67,6 +67,53 @@ class MultiFilesystemArguments(TaskArguments):
         self.load_args_from_dictionary(dictionary_arguments)
 
 
+class LSArguments(TaskArguments):
+    def __init__(self, command_line, **kwargs):
+        super().__init__(command_line, **kwargs)
+        self.args = [
+            CommandParameter(
+                name="path",
+                type=ParameterType.String,
+                description="Path to list",
+                default_value=".",
+                parameter_group_info=[
+                    ParameterGroupInfo(group_name="Default", required=False),
+                ]
+            ),
+            CommandParameter(
+                name="host",
+                type=ParameterType.String,
+                description="Host for file browser",
+                default_value="",
+                parameter_group_info=[
+                    ParameterGroupInfo(group_name="Default", required=False),
+                ]
+            ),
+            CommandParameter(
+                name="file",
+                type=ParameterType.String,
+                description="File clicked in browser",
+                default_value="",
+                parameter_group_info=[
+                    ParameterGroupInfo(group_name="Default", required=False),
+                ]
+            ),
+        ]
+
+    async def parse_arguments(self):
+        if len(self.command_line) > 0:
+            self.add_arg("path", self.command_line)
+
+    async def parse_dictionary(self, dictionary_arguments):
+        self.load_args_from_dictionary(dictionary_arguments)
+        if "path" in dictionary_arguments and "file" in dictionary_arguments:
+            path = dictionary_arguments["path"]
+            file = dictionary_arguments["file"]
+            if file:
+                combined = path.rstrip("\\").rstrip("/") + "\\" + file
+                self.add_arg("path", combined)
+
+
 class LSCommand(CommandBase):
     cmd = "ls"
     needs_admin = False
@@ -75,10 +122,12 @@ class LSCommand(CommandBase):
     version = 1
     author = "@PatchRequest"
     attackmapping = ["T1083"]
-    argument_class = SingleFilesystemArguments
+    argument_class = LSArguments
+    supported_ui_features = ["file_browser:list"]
     attributes = CommandAttributes(supported_os=[SupportedOS.Windows])
 
     async def create_tasking(self, task: MythicTask) -> MythicTask:
+        task.display_params = task.args.get_arg("path")
         return task
 
     async def process_response(self, task: PTTaskMessageAllData, response: any) -> PTTaskProcessResponseMessageResponse:

@@ -47,6 +47,12 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         (w, h, raw_buf)
     };
 
+    // ---- SWAP BGRA -> RGBA ----
+    let mut buf = buf;
+    for pixel in buf.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+
     // ---- ENCODE TO PNG ----
     let img = ImageBuffer::<Rgba<u8>, _>::from_raw(width as u32, height as u32, buf).unwrap();
     let mut png_buf = Vec::new();

@@ -40,7 +40,10 @@ winapi = { version = "0.3", features = [
     "handleapi",
     "windef",    # <- for HDC, HBITMAP etc.
     "wingdi",    # <- for BitBlt, CreateCompatibleDC, etc.
-    "winuser"    # <- for GetDC, GetSystemMetrics, etc.
+    "winuser",   # <- for GetDC, GetSystemMetrics, etc.
+    "fileapi",
+    "libloaderapi",
+    "sysinfoapi"
 ] }
 image = { version = "0.24", default-features = false, features = ["png", "ico"] }
 tiny_http = "0.12"

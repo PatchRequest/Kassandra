@@ -28,7 +28,7 @@ pub fn run_bof_worker() {
             output.push_str("COFF loaded!\n");
 
             if params_str.is_empty() {
-                match coffee.execute(None, None, &None) {
+                match coffee.execute(None, None, &Some("go".to_string())) {
                     Ok(res) => output.push_str(&res),
                     Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
                 }
@@ -46,7 +46,7 @@ pub fn run_bof_worker() {
                         let ptr = buf.as_ptr();
                         let len = buf.len();
 
-                        match coffee.execute(Some(ptr), Some(len), &None) {
+                        match coffee.execute(Some(ptr), Some(len), &Some("go".to_string())) {
                             Ok(res) => output.push_str(&res),
                             Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
                         }

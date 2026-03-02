@@ -15,7 +15,7 @@ class ExecuteBOFArguments(TaskArguments):
             CommandParameter(
                 name="parameters",
                 type=ParameterType.String,
-                description="--param=value",
+                description="Typed args: str:val wstr:val int:123 short:5 bin:b64data (no prefix defaults to str)",
             ),
         ]
 

@@ -36,7 +36,26 @@ pub fn run_bof_worker() {
                 let mut pack = BeaconPack::new();
 
                 for arg in params_str.split_whitespace() {
-                    if let Err(e) = pack.add_str(arg) {
+                    let result = if let Some(val) = arg.strip_prefix("int:") {
+                        val.parse::<i32>()
+                            .map_err(|e| e.to_string().into())
+                            .and_then(|v| pack.add_int(v))
+                    } else if let Some(val) = arg.strip_prefix("short:") {
+                        val.parse::<i16>()
+                            .map_err(|e| e.to_string().into())
+                            .and_then(|v| pack.add_short(v))
+                    } else if let Some(val) = arg.strip_prefix("wstr:") {
+                        pack.add_wstr(val)
+                    } else if let Some(val) = arg.strip_prefix("bin:") {
+                        general_purpose::STANDARD.decode(val)
+                            .map_err(|e| e.to_string().into())
+                            .and_then(|v| pack.add_bin(&v))
+                    } else if let Some(val) = arg.strip_prefix("str:") {
+                        pack.add_str(val)
+                    } else {
+                        pack.add_str(arg)
+                    };
+                    if let Err(e) = result {
                         output.push_str(&format!("Arg error ({}): {}\n", arg, e));
                     }
                 }

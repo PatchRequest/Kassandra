@@ -13,13 +13,7 @@ serde_json = "1.0"
 base64 = "0.22.1"
 chrono = "0.4"
 lazy_static = "1.5.0"
-coffeeldr = "0.3.4"
-windows-sys = { version = "0.48", features = [
-  "Win32_System_Threading",
-  "Win32_System_Diagnostics_Debug",
-  "Win32_Foundation",
-  # …only the Win32 sub-APIs `coffeeldr` actually uses
-] }
+coffee-ldr = "0.2.2"
 clroxide = "1.1.1"
 windows = { version = "0.61.1", features = ["Win32", "Win32_System", "Win32_System_Com", "Win32_System_Memory"] }
 ntapi = "0.4.1"

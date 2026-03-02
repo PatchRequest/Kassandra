@@ -34,7 +34,10 @@ fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn 
         config::post_uri
     );
 
-    let client = Client::new();
+    let client = Client::builder()
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .build()?;
     let res = client
         .post(&url)
         .header("Content-Type", "application/json")

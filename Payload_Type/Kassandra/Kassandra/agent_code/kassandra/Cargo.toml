@@ -13,7 +13,7 @@ serde_json = "1.0"
 base64 = "0.22.1"
 chrono = "0.4"
 lazy_static = "1.5.0"
-coffeeldr = "0.2.0"
+coffeeldr = "0.3.4"
 windows-sys = { version = "0.48", features = [
   "Win32_System_Threading",
   "Win32_System_Diagnostics_Debug",

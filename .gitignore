@@ -4,4 +4,5 @@ main
 .idea
 mythic_go_services.bin
 Payload_Type/Kassandra/Kassandra/agent_code/kassandra/target/
+Payload_Type/Kassandra/Kassandra/agent_code/kassandra/coffee-patched/
 target/

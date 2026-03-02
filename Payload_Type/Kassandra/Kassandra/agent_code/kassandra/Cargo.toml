@@ -13,7 +13,7 @@ serde_json = "1.0"
 base64 = "0.22.1"
 chrono = "0.4"
 lazy_static = "1.5.0"
-coffee-ldr = { git = "https://github.com/hakaioffsec/coffee", branch = "main" }
+coffee-ldr = { git = "https://github.com/PatchRequest/coffee", branch = "main" }
 clroxide = "1.1.1"
 windows = { version = "0.61.1", features = ["Win32", "Win32_System", "Win32_System_Com", "Win32_System_Memory"] }
 ntapi = "0.4.1"

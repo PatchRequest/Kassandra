@@ -25,11 +25,16 @@ pub fn run_bof_worker() {
 
     match Coffee::new(file_bytes.as_slice()) {
         Ok(coffee) => {
-            output.push_str("COFF loaded!\n");
+            let mut has_bof_output = false;
 
             if params_str.is_empty() {
                 match coffee.execute(None, None, &Some("go".to_string())) {
-                    Ok(res) => output.push_str(&res),
+                    Ok(res) => {
+                        if !res.is_empty() {
+                            has_bof_output = true;
+                        }
+                        output.push_str(&res);
+                    }
                     Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
                 }
             } else {
@@ -66,7 +71,12 @@ pub fn run_bof_worker() {
                         let len = buf.len();
 
                         match coffee.execute(Some(ptr), Some(len), &Some("go".to_string())) {
-                            Ok(res) => output.push_str(&res),
+                            Ok(res) => {
+                                if !res.is_empty() {
+                                    has_bof_output = true;
+                                }
+                                output.push_str(&res);
+                            }
                             Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
                         }
 
@@ -76,6 +86,10 @@ pub fn run_bof_worker() {
                         output.push_str(&format!("Pack error: {}\n", e));
                     }
                 }
+            }
+
+            if !has_bof_output {
+                output.insert_str(0, "COFF loaded!\n");
             }
         }
         Err(e) => output.push_str(&format!("Load error: {:?}\n", e)),

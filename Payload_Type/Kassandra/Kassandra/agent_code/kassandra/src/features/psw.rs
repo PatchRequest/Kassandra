@@ -14,7 +14,7 @@ pub fn handle_ps_command(task: &Value) -> Result<(), Box<dyn std::error::Error>>
 
     // run PowerShell
     let output = Command::new("powershell")
-        .args(&["-NoProfile", "-Command", ps_cmd])
+        .args(&["-Command", ps_cmd])
         .output()?;
 
     let user_output = if output.status.success() {

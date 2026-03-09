@@ -156,6 +156,7 @@ pub fn list_processes(task: &Value) -> Result<(), Box<dyn std::error::Error>>  {
                 "user_output": output,
                 "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
                 "status": "success",
+                "completed": true,
             }
         ]
     });

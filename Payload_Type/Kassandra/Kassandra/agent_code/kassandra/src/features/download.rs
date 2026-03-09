@@ -40,6 +40,7 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         "action": "post_response",
         "responses": [{
             "task_id": id,
+            "completed": true,
             "download": {
                 "total_chunks": total_chunks,
                 "full_path": path.to_string_lossy(),
@@ -64,6 +65,7 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             "action": "post_response",
             "responses": [{
                 "task_id": id,
+                "completed": true,
                 "download": {
                     "chunk_num": chunk_num,
                     "file_id": file_id,
@@ -83,7 +85,8 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             "task_id": id,
             "user_output": format!("Uploaded as {}", file_id),
             "agent_file_id": file_id,
-            "status": "success"
+            "status": "success",
+            "completed": true
         }]
     })
     .to_string();

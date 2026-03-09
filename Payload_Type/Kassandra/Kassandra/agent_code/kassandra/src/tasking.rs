@@ -122,7 +122,7 @@ pub fn handleTask(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
             {
                 "task_id": id,
                 "user_output": response_value,
-                "timestamp":  timestamp,
+                "completed": true,
                 "status": "success",
             }
         ]

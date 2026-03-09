@@ -3,14 +3,23 @@ use std::time::Duration;
 use serde_json::Value;
 use base64::{engine::general_purpose, Engine as _};
 use crate::config;
+use crate::s3_transport;
 
 
 pub fn send_request(payload: &str) -> Result<String, Box<dyn std::error::Error>> {
-    send_request_internal(payload, true)
+    if config::use_s3 {
+        s3_transport::send_and_receive(payload)
+    } else {
+        send_request_internal(payload, true)
+    }
 }
 
 pub fn send_request_raw(payload: &str) -> Result<String, Box<dyn std::error::Error>> {
-    send_request_internal(payload, false)
+    if config::use_s3 {
+        s3_transport::send_and_receive(payload)
+    } else {
+        send_request_internal(payload, false)
+    }
 }
 
 fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn std::error::Error>> {
@@ -53,13 +62,21 @@ fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn 
 }
 
 pub fn send_request_with_response(payload: &str) -> Result<Value, Box<dyn std::error::Error>> {
-    let response_text = send_request(payload)?;
-    let json: Value = serde_json::from_str(&response_text)?;
-    Ok(json)
+    if config::use_s3 {
+        s3_transport::send_and_receive_json(payload)
+    } else {
+        let response_text = send_request_internal(payload, true)?;
+        let json: Value = serde_json::from_str(&response_text)?;
+        Ok(json)
+    }
 }
 
 pub fn send_request_with_response_raw(payload: &str) -> Result<Value, Box<dyn std::error::Error>> {
-    let response_text = send_request_raw(payload)?;
-    let json: Value = serde_json::from_str(&response_text)?;
-    Ok(json)
+    if config::use_s3 {
+        s3_transport::send_and_receive_json(payload)
+    } else {
+        let response_text = send_request_internal(payload, false)?;
+        let json: Value = serde_json::from_str(&response_text)?;
+        Ok(json)
+    }
 }

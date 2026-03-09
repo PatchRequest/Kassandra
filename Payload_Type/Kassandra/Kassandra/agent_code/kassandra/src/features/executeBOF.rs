@@ -32,7 +32,8 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
                     "file_id": file_id,
                     "chunk_num": chunk_num,
                 },
-                "task_id": id
+                "task_id": id,
+                "completed": true
             }]
         })
         .to_string();
@@ -88,7 +89,8 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             "task_id": id,
             "user_output": output,
             "agent_file_id": file_id,
-            "status": status
+            "status": status,
+            "completed": true
         }]
     })
     .to_string();

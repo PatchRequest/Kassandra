@@ -75,6 +75,7 @@ pub fn startPivotListener(task: &serde_json::Value) -> Result<(), Box<dyn std::e
                 "user_output": format!("Pivot listener started on port {}", port),
                 "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
                 "status": "success",
+                "completed": true,
             }
         ]
     });
@@ -112,6 +113,7 @@ pub fn stopPivotListener(task: &serde_json::Value) -> Result<(), Box<dyn std::er
                 "user_output": format!("Pivot listener stopped on port {}", port),
                 "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
                 "status": "success",
+                "completed": true,
             }
         ]
     });
@@ -141,6 +143,7 @@ pub fn listPivotListeners(task: &serde_json::Value) -> Result<(), Box<dyn std::e
                 "user_output": port_list,
                 "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
                 "status": "success",
+                "completed": true,
             }
         ]
     });

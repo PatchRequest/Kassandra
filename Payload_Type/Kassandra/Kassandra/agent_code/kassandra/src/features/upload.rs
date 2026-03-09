@@ -44,7 +44,8 @@ pub fn upload(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
                     "chunk_num": chunk_num,
                     "full_path": path.to_string_lossy()
                 },
-                "task_id": id
+                "task_id": id,
+                "completed": true
             }]
         })
         .to_string();
@@ -74,7 +75,8 @@ pub fn upload(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         "responses": [{
             "task_id": id,
             "user_output": format!("Wrote {} chunks to {}", total_chunks, path.display()),
-            "status": "success"
+            "status": "success",
+            "completed": true
         }]
     })
     .to_string();

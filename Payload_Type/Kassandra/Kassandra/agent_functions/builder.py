@@ -60,7 +60,7 @@ class KassandraAgent(PayloadType):
         Config = {
             "payload_uuid": self.uuid,
             "callback_host": "",
-            "USER_AGENT": "",
+            "USER_AGENT": "Mozilla/5.0 MythicAgent",
             "httpMethod": "POST",
             "post_uri": "",
             "headers": [],

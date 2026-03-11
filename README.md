@@ -12,6 +12,12 @@ This public release of the agent does not include all implemented obfuscation an
   * `Hell's Hall` for stealthy syscall resolution
   * `EkkoSleep` (timing-based sleep obfuscation)
 
+* **Defense Evasion:**
+
+  * **NTDLL Unhooking** — Reads a clean `ntdll.dll` from disk and overwrites the hooked in-memory `.text` section to remove EDR hooks before any C2 activity
+  * **DLL Enumeration Guard** — Walks the PEB's `InMemoryOrderModuleList` to count loaded modules; if the count exceeds a threshold (indicating EDR DLL injection), the agent goes dormant
+  * **Evasive Sleep** — Replaces `std::thread::sleep()` (which calls hookable `NtDelayExecution`) with a Fibonacci busy-wait loop, plus NTP time verification to detect sandbox clock manipulation
+
 * **Security Context Control:**
 
   * Modify the **Security Descriptor** of the current process to restrict/allow interaction

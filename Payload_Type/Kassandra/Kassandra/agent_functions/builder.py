@@ -166,7 +166,7 @@ class KassandraAgent(PayloadType):
 
         # Build in-place to reuse cached target/ artifacts across builds.
         # Only config.rs changes between builds — stamp it, build, restore.
-        kassandra_dir = pathlib.Path(self.agent_code_path) / "kassandra"
+        kassandra_dir = (pathlib.Path(self.agent_code_path) / "kassandra").resolve()
         config_path = kassandra_dir / "src" / "config.rs"
         cargo_path = kassandra_dir / "Cargo.toml"
         src_path = kassandra_dir / "src"

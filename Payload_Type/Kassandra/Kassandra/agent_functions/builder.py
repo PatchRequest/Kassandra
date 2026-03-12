@@ -3,11 +3,9 @@ from mythic_container.PayloadBuilder import *
 from mythic_container.MythicCommandBase import *
 from mythic_container.MythicRPC import *
 import json
-import tempfile
-from distutils.dir_util import copy_tree
 import asyncio
 import os
-import time
+import shutil
 import base64
 import subprocess
 
@@ -166,13 +164,26 @@ class KassandraAgent(PayloadType):
                 StepSuccess=True,
             ))
 
-        agent_build_path = tempfile.TemporaryDirectory(suffix=self.uuid)
-        copy_tree(str(self.agent_code_path), agent_build_path.name)
+        # Build in-place to reuse cached target/ artifacts across builds.
+        # Only config.rs changes between builds — stamp it, build, restore.
+        kassandra_dir = pathlib.Path(self.agent_code_path) / "kassandra"
+        config_path = kassandra_dir / "src" / "config.rs"
+        cargo_path = kassandra_dir / "Cargo.toml"
+        src_path = kassandra_dir / "src"
 
+        # Save originals for restoration after build
+        config_original = config_path.read_text()
+        cargo_original = cargo_path.read_text()
 
-        config_path = pathlib.Path(agent_build_path.name) / "kassandra" / "src" / "config.rs"
-        with open(config_path, "r+") as f:
-            content = f.read()
+        # Files we may temporarily hide for EXE vs DLL builds
+        main_rs = src_path / "main.rs"
+        lib_rs = src_path / "lib.rs"
+        main_hidden = src_path / "main.rs.bak"
+        lib_hidden = src_path / "lib.rs.bak"
+
+        try:
+            # Stamp config.rs with build-specific values
+            content = config_original
             content = content.replace("%UUID%", Config["payload_uuid"])
             content = content.replace("%HOSTNAME%", Config.get("callback_host", ""))
             content = content.replace("%ENDPOINT%", Config.get("post_uri", ""))
@@ -205,87 +216,87 @@ class KassandraAgent(PayloadType):
                 content = content.replace("%S3_REGION%", "")
                 content = content.replace("%AESPSK%", "")
 
-            f.seek(0)
-            f.write(content)
-            f.truncate()
-            f.flush()                 # push Python's buffers
-            os.fsync(f.fileno())      # push OS buffers
+            config_path.write_text(content)
 
-        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
-            PayloadUUID=self.uuid,
-            StepName="Applying configuration",
-            StepStdout="All configuration setting applied",
-            StepSuccess=True
-        ))
-        output_format = self.get_parameter("output")
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Applying configuration",
+                StepStdout="All configuration setting applied",
+                StepSuccess=True
+            ))
 
-        rustUpCommand = "rustup +nightly target add x86_64-pc-windows-gnu"
-        proc = await asyncio.create_subprocess_shell(
-            rustUpCommand,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        await proc.communicate()
+            output_format = self.get_parameter("output")
 
-        src_path = pathlib.Path(agent_build_path.name) / "kassandra" / "src"
-        if output_format == "dll":
-            # Remove main.rs so cargo only sees the lib target
-            (src_path / "main.rs").unlink(missing_ok=True)
-            # Add [lib] section to Cargo.toml for cdylib output
-            cargo_path = pathlib.Path(agent_build_path.name) / "kassandra" / "Cargo.toml"
-            with open(cargo_path, "a") as f:
-                f.write('\n[lib]\ncrate-type = ["cdylib"]\npath = "src/lib.rs"\n')
-        else:
-            # Remove lib.rs so cargo only sees the bin target
-            (src_path / "lib.rs").unlink(missing_ok=True)
+            # Temporarily hide the unused entry point and adjust Cargo.toml
+            if output_format == "dll":
+                if main_rs.exists():
+                    main_rs.rename(main_hidden)
+                with open(cargo_path, "a") as f:
+                    f.write('\n[lib]\ncrate-type = ["cdylib"]\npath = "src/lib.rs"\n')
+            else:
+                if lib_rs.exists():
+                    lib_rs.rename(lib_hidden)
 
-        manifest = f"--manifest-path {agent_build_path.name}/kassandra/Cargo.toml"
-        target = "--target x86_64-pc-windows-gnu"
-        toolchain = "+nightly-2025-04-30"
+            manifest = f"--manifest-path {cargo_path}"
+            target = "--target x86_64-pc-windows-gnu"
+            toolchain = "+nightly-2025-04-30"
 
-        # --- cargo build ---
-        if output_format == "dll":
-            build_command = f"cargo {toolchain} build --release --lib {target} {manifest}"
-            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.dll"
-        else:
-            build_command = f"cargo {toolchain} build --release {target} {manifest}"
-            filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
+            # --- cargo build ---
+            num_jobs = os.cpu_count() or 4
+            if output_format == "dll":
+                build_command = f"cargo {toolchain} build --release --lib -j {num_jobs} {target} {manifest}"
+                filename = str(kassandra_dir / "target" / "x86_64-pc-windows-gnu" / "release" / "kassandra.dll")
+            else:
+                build_command = f"cargo {toolchain} build --release -j {num_jobs} {target} {manifest}"
+                filename = str(kassandra_dir / "target" / "x86_64-pc-windows-gnu" / "release" / "kassandra.exe")
 
-        proc = await asyncio.create_subprocess_shell(
-            build_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
-        stdout_str = stdout.decode(errors="replace")
-        stderr_str = stderr.decode(errors="replace")
+            proc = await asyncio.create_subprocess_shell(
+                build_command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+            stdout_str = stdout.decode(errors="replace")
+            stderr_str = stderr.decode(errors="replace")
 
-        if proc.returncode != 0:
+            if proc.returncode != 0:
+                await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                    PayloadUUID=self.uuid,
+                    StepName="Compiling",
+                    StepStdout=f"Compilation failed:\n{stderr_str}",
+                    StepSuccess=False
+                ))
+                resp.status = BuildStatus.Error
+                resp.build_message = stderr_str
+                return resp
+
             await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
                 PayloadUUID=self.uuid,
                 StepName="Compiling",
-                StepStdout=f"Compilation failed:\n{stderr_str}",
-                StepSuccess=False
+                StepStdout=f"Successfully compiled Kassandra\n{stderr_str}",
+                StepSuccess=True
             ))
-            resp.status = BuildStatus.Error
-            resp.build_message = stderr_str
+
+            pfx_path = "/opt/codesign.pfx"
+            if not os.path.exists(pfx_path):
+                pfx_path = generate_self_signed_cert()
+            if output_format == "dll":
+                newName = filename.replace("kassandra.dll", "kassandraSigned.dll")
+            else:
+                newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
+            sign_with_osslsigncode(filename, newName, pfx_path, "infected")
+
+            resp.payload = open(newName, "rb").read()
             return resp
 
-        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
-            PayloadUUID=self.uuid,
-            StepName="Compiling",
-            StepStdout=f"Successfully compiled Kassandra\n{stderr_str}",
-            StepSuccess=True
-        ))
-        pfx_path = generate_self_signed_cert()
-        if output_format == "dll":
-            newName = filename.replace("kassandra.dll", "kassandraSigned.dll")
-        else:
-            newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
-        sign_with_osslsigncode(filename, newName, pfx_path, "infected")
-
-        resp.payload = open(newName, "rb").read()
-        return resp
+        finally:
+            # Always restore original source files so the next build starts clean
+            config_path.write_text(config_original)
+            cargo_path.write_text(cargo_original)
+            if main_hidden.exists():
+                main_hidden.rename(main_rs)
+            if lib_hidden.exists():
+                lib_hidden.rename(lib_rs)
 
 
 

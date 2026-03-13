@@ -7,6 +7,24 @@ This public release of the agent does not include all implemented obfuscation an
   <img src="./KassandraLogo.png" width="400" />
 </p>
 
+## Installation
+
+From the Mythic install directory, use the following command to install Kassandra:
+```bash
+cd /path/to/Mythic
+sudo ./mythic-cli install github https://github.com/PatchRequest/Kassandra
+```
+
+As a non-root user:
+```bash
+sudo -E ./mythic-cli install github https://github.com/PatchRequest/Kassandra
+```
+
+Or from a local folder:
+```bash
+sudo ./mythic-cli install folder /path/to/Kassandra
+```
+
 ## ⚙ Features
 
 * **Syscall Evasion:**

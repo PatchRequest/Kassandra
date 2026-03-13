@@ -340,10 +340,12 @@ class KassandraAgent(PayloadType):
 
         # --- cargo build ---
         if output_format == "dll":
-            build_command = f"cargo {toolchain} build --release --lib {target} {manifest}"
+            features_flag = "--features tailscale" if use_tailscale else ""
+            build_command = f"cargo {toolchain} build --release --lib {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.dll"
         else:
-            build_command = f"cargo {toolchain} build --release {target} {manifest}"
+            features_flag = "--features tailscale" if use_tailscale else ""
+            build_command = f"cargo {toolchain} build --release {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
 
         proc = await asyncio.create_subprocess_shell(

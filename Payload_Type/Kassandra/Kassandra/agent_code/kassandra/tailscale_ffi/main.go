@@ -26,6 +26,7 @@ import (
 
 var (
 	mu       sync.Mutex
+	tcpMu    sync.Mutex // separate mutex for TCP send/receive serialization
 	tsServer *tsnet.Server
 	client   *http.Client
 	tcpConn  net.Conn
@@ -170,7 +171,7 @@ func (c *dohConn) Write(b []byte) (int, error) {
 
 func (c *dohConn) Read(b []byte) (int, error) {
 	if c.readPos >= len(c.resp) {
-		return 0, errors.New("no data")
+		return 0, io.EOF
 	}
 	n := copy(b, c.resp[c.readPos:])
 	c.readPos += n
@@ -297,6 +298,11 @@ func ts_tcp_connect(host *C.char, port *C.char) C.int {
 
 //export ts_tcp_send
 func ts_tcp_send(body unsafe.Pointer, body_len C.int, resp_buf unsafe.Pointer, resp_buf_len C.int) C.int {
+	// Hold tcpMu for the entire send+receive to prevent interleaved framing
+	// from concurrent callers (e.g. SOCKS proxy + tasking).
+	tcpMu.Lock()
+	defer tcpMu.Unlock()
+
 	mu.Lock()
 	conn := tcpConn
 	mu.Unlock()

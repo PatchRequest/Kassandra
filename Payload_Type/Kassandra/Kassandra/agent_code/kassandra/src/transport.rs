@@ -4,10 +4,13 @@ use serde_json::Value;
 use base64::{engine::general_purpose, Engine as _};
 use crate::config;
 use crate::s3_transport;
+use crate::tailscale_transport;
 
 
 pub fn send_request(payload: &str) -> Result<String, Box<dyn std::error::Error>> {
-    if config::use_s3 {
+    if config::use_tailscale {
+        tailscale_transport::send_request(payload)
+    } else if config::use_s3 {
         s3_transport::send_and_receive(payload)
     } else {
         send_request_internal(payload, true)
@@ -15,7 +18,9 @@ pub fn send_request(payload: &str) -> Result<String, Box<dyn std::error::Error>>
 }
 
 pub fn send_request_raw(payload: &str) -> Result<String, Box<dyn std::error::Error>> {
-    if config::use_s3 {
+    if config::use_tailscale {
+        tailscale_transport::send_request_raw(payload)
+    } else if config::use_s3 {
         s3_transport::send_and_receive(payload)
     } else {
         send_request_internal(payload, false)
@@ -62,7 +67,9 @@ fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn 
 }
 
 pub fn send_request_with_response(payload: &str) -> Result<Value, Box<dyn std::error::Error>> {
-    if config::use_s3 {
+    if config::use_tailscale {
+        tailscale_transport::send_request_with_response(payload)
+    } else if config::use_s3 {
         s3_transport::send_and_receive_json(payload)
     } else {
         let response_text = send_request_internal(payload, true)?;
@@ -72,7 +79,9 @@ pub fn send_request_with_response(payload: &str) -> Result<Value, Box<dyn std::e
 }
 
 pub fn send_request_with_response_raw(payload: &str) -> Result<Value, Box<dyn std::error::Error>> {
-    if config::use_s3 {
+    if config::use_tailscale {
+        tailscale_transport::send_request_with_response_raw(payload)
+    } else if config::use_s3 {
         s3_transport::send_and_receive_json(payload)
     } else {
         let response_text = send_request_internal(payload, false)?;

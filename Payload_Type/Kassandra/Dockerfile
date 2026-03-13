@@ -25,11 +25,14 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 
-ENV PATH="/root/.cargo/bin:${PATH}"
+ENV PATH="/root/.cargo/bin:/usr/local/go/bin:${PATH}"
 ENV CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
 
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2025-05-21 
-    
+# Install Go (needed to build tailscale FFI library)
+RUN curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2025-05-21
+
 
 COPY requirements.txt /
 RUN pip3 install -r /requirements.txt
@@ -37,6 +40,14 @@ RUN pip3 install -r /requirements.txt
 RUN rustup install nightly-2025-04-30
 RUN rustup override set nightly-2025-04-30
 RUN rustup +nightly-2025-04-30 target add x86_64-pc-windows-gnu
+
+# Pre-build the Tailscale FFI static library for Windows (cross-compiled via Go + mingw)
+COPY Kassandra/agent_code/kassandra/tailscale_ffi /tmp/tailscale_ffi
+RUN cd /tmp/tailscale_ffi && \
+    go mod tidy && \
+    CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc GOOS=windows GOARCH=amd64 \
+      go build -buildmode=c-archive -ldflags="-s -w" -o /opt/tailscale_ffi/libtailscale_ffi.a . && \
+    rm -rf /tmp/tailscale_ffi
 
 WORKDIR /Mythic/
 CMD ["python3", "main.py"]

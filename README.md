@@ -12,7 +12,6 @@ This public release of the agent does not include all implemented obfuscation an
 * **Syscall Evasion:**
 
   * `Hell's Hall` for stealthy syscall resolution
-  * `EkkoSleep` (timing-based sleep obfuscation)
 
 * **Security Context Control:**
 
@@ -56,12 +55,8 @@ This public release of the agent does not include all implemented obfuscation an
 
 * **Not yet complete:**
 
-  * Full Initial check-in procedure
   * Full encryption of transport and task responses
 
-## 🐍 Builder
-
-The agent is built and packaged using a Python container compatible with Mythic’s payload type framework. Uses `cargo` with `x86_64-pc-windows-gnu` target.
 
 ## 📁 Structure
 
@@ -82,6 +77,6 @@ This project is for **educational and red teaming** purposes only. Do not use wi
 
 ---
 
-Special thanks to MalDevAcademy for their high-quality malware development training, @5mukx for sharing advanced evasion techniques, VX-Underground for curating an essential archive of offensive research, and also to @ZkClown and Ze_Asimovitch for their continuous inspiration and contributions to the red teaming community
-
 Thanks to [@Yeeb1](https://github.com/Yeeb1) for contributing the [awss3](https://github.com/Yeeb1/awss3) S3 Storage C2 profile integration, the [Tailscale C2 transport](https://github.com/Yeeb1/mythic_tailscale), and agent improvements
+
+Thanks to MalDevAcademy for their high-quality malware development training, VX-Underground for curating an essential archive of offensive research, and also to @ZkClown and Ze_Asimovitch for their continuous inspiration and contributions to the red teaming community

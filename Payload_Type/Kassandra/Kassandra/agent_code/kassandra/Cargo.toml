@@ -61,3 +61,7 @@ nasm-rs = "0.3.0"
 strip = true
 lto = false
 #panic = "abort"
+
+[features]
+default = []
+tailscale = []

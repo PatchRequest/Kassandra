@@ -34,6 +34,7 @@ This public release of the agent does not include all implemented obfuscation an
 
   * **HTTP** — Standard Mythic HTTP C2 profile
   * **[S3 Storage](https://github.com/Yeeb1/awss3)** — S3-based C2 transport with AWS SigV4 signing, bootstrap registration for per-execution IAM credential isolation, and AES-256-CBC encryption with HMAC-SHA256 (EKE)
+  * **[Tailscale](https://github.com/Yeeb1/mythic_tailscale)** — Embedded Tailscale/Headscale C2 transport via Go FFI, supporting HTTP and raw TCP protocols over WireGuard tunnels with optional DNS-over-HTTPS
 
 * **Proxy & Pivot:**
 
@@ -81,4 +82,4 @@ This project is for **educational and red teaming** purposes only. Do not use wi
 
 Special thanks to MalDevAcademy for their high-quality malware development training, @5mukx for sharing advanced evasion techniques, VX-Underground for curating an essential archive of offensive research, and also to @ZkClown and Ze_Asimovitch for their continuous inspiration and contributions to the red teaming community
 
-Thanks to [@Yeeb1](https://github.com/Yeeb1) for contributing the [awss3](https://github.com/Yeeb1/awss3) S3 Storage C2 profile integration and agent improvements
+Thanks to [@Yeeb1](https://github.com/Yeeb1) for contributing the [awss3](https://github.com/Yeeb1/awss3) S3 Storage C2 profile integration, the [Tailscale C2 transport](https://github.com/Yeeb1/mythic_tailscale), and agent improvements

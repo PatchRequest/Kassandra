@@ -302,7 +302,7 @@ dependencies = [
 [[package]]
 name = "coffee-ldr"
 version = "0.2.2"
-source = "git+https://github.com/PatchRequest/coffee?branch=main#f679a26647f6fd48f32423e18537c9d56e9348fd"
+source = "git+https://github.com/hakaioffsec/coffee?branch=main#f679a26647f6fd48f32423e18537c9d56e9348fd"
 dependencies = [
  "base64",
  "byteorder",

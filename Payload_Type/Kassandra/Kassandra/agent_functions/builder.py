@@ -65,6 +65,12 @@ class KassandraAgent(PayloadType):
             default_value="",
             description="Custom DoH resolver URL (only used when doh=custom, e.g. https://dns.example.com/dns-query)",
         ),
+        BuildParameter(
+            name="no_console",
+            parameter_type=BuildParameterType.Boolean,
+            default_value=False,
+            description="Hide console window (sets windows_subsystem = windows for full stealth)",
+        ),
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
     agent_icon_path = agent_path / "agent_functions" / "Kassandra.svg"     # Path of the icon
@@ -339,12 +345,17 @@ class KassandraAgent(PayloadType):
         toolchain = "+nightly-2025-04-30"
 
         # --- cargo build ---
+        features = []
+        if use_tailscale:
+            features.append("tailscale")
+        if self.get_parameter("no_console"):
+            features.append("no_console")
+        features_flag = f"--features {','.join(features)}" if features else ""
+
         if output_format == "dll":
-            features_flag = "--features tailscale" if use_tailscale else ""
             build_command = f"cargo {toolchain} build --release --lib {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.dll"
         else:
-            features_flag = "--features tailscale" if use_tailscale else ""
             build_command = f"cargo {toolchain} build --release {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
 

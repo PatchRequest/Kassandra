@@ -1,3 +1,5 @@
+#![cfg_attr(feature = "no_console", windows_subsystem = "windows")]
+
 mod config;
 mod checkin;
 mod transport;

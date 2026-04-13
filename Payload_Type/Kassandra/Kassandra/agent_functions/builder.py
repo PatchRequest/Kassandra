@@ -17,7 +17,7 @@ class KassandraAgent(PayloadType):
     author = "@PatchRequest"                                          # Author
     supported_os = [SupportedOS.Windows]                              # OS Handled
     wrapper = False                                                   # If we want to use a wrapper like scarescrow
-    wrapped_payloads = ["Charon"]                                     # If wrapper, list of wrapper payloads to use
+    wrapped_payloads = []                                             # If wrapper, list of wrapper payloads to use
     note = """Basic Implant in Rust"""                                   # Description
     supports_dynamic_loading = False                                  # Support of dynamic code loading
     c2_profiles = ["http", "s3_storage", "tailscale"]                  # Listener types

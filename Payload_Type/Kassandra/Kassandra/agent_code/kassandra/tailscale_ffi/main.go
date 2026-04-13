@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"io"
 	"net"
 	"net/http"

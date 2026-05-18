@@ -86,7 +86,17 @@ sudo ./mythic-cli install folder /path/to/Kassandra
 └── Cargo.toml
 ```
 
-## 🚧 Disclaimer
+## Blog Posts
+
+This project has an accompanying blog series on [patchi.fyi](https://patchi.fyi):
+
+- [Architecture Overview](https://patchi.fyi/blog/kassandra-architecture-overview/)
+- [Hell's Hall Syscalls](https://patchi.fyi/blog/kassandra-hells-hall-syscalls/)
+- [S3 Transport](https://patchi.fyi/blog/kassandra-s3-transport/)
+- [In-Memory Execution](https://patchi.fyi/blog/kassandra-in-memory-execution/)
+- [Process Hardening](https://patchi.fyi/blog/kassandra-process-hardening/)
+
+## Disclaimer
 
 This project is for **educational and red teaming** purposes only. Do not use without proper authorization.
 

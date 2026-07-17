@@ -1,3 +1,37 @@
+# ---- Stage 1: catalog-builder ----
+# Clones TSEC CS-SA-BOF, Outflank C2-Tool-Collection, Flangvik SharpCollection at pinned
+# commits, compiles BOFs with mingw-w64 + .NET tools with dotnet SDK, emits /catalog.
+FROM ubuntu:22.04 AS catalog-builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      git make mingw-w64 nasm \
+      python3 curl ca-certificates gnupg && \
+    curl -sSL https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -o /tmp/ms.deb && \
+    dpkg -i /tmp/ms.deb && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends dotnet-sdk-8.0 && \
+    rm -rf /var/lib/apt/lists/* /tmp/ms.deb
+
+ARG TSEC_REF=ee9459cc4f42c6b025797bad22ffe8d9f1cf6487
+ARG OUTFLANK_REF=e371a38c717edaf1650923575ab33bee0dd3e0ee
+ARG SHARP_REF=dad01b93abf5074e72b94218b74bee310f6eb74a
+
+WORKDIR /src
+RUN git clone https://github.com/trustedsec/CS-Situational-Awareness-BOF.git tsec && \
+    git -C tsec checkout ${TSEC_REF}
+RUN git clone https://github.com/outflanknl/C2-Tool-Collection.git outflank && \
+    git -C outflank checkout ${OUTFLANK_REF}
+RUN git clone https://github.com/Flangvik/SharpCollection.git sharp && \
+    git -C sharp checkout ${SHARP_REF}
+
+COPY build_catalog.sh /tmp/build_catalog.sh
+RUN chmod +x /tmp/build_catalog.sh && /tmp/build_catalog.sh
+
+
+# ---- Stage 2: runtime ----
 FROM ubuntu:22.04
 
 ARG CA_CERTIFICATE
@@ -23,6 +57,8 @@ RUN apt-get update && \
       mingw-w64 \
       osslsigncode openssl && \
     rm -rf /var/lib/apt/lists/*
+
+COPY --from=catalog-builder /catalog /opt/kassandra_catalog
 
 
 ENV PATH="/root/.cargo/bin:/usr/local/go/bin:${PATH}"

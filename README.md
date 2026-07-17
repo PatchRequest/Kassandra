@@ -44,7 +44,8 @@ sudo ./mythic-cli install folder /path/to/Kassandra
 * **In-Memory Execution:**
 
   * Execute **.NET assemblies** in memory
-  * Load and run **Beacon object files (.boF)** in memory
+  * Load and run **Beacon object files (BOF)** in memory
+  * **Built-in BOF / .NET catalog** baked into the payload container — no manual file upload needed (see below)
 
 * **C2 Transports:**
 
@@ -65,6 +66,65 @@ sudo ./mythic-cli install folder /path/to/Kassandra
 
   * Take screenshots (GDI-based capture, PNG-encoded)
 
+
+## 📦 Built-in BOF / .NET Catalog
+
+Kassandra's payload container bundles a ready-to-use catalog of **188 tools** from three well-known collections, compiled at image build time:
+
+| Source | Type | Count | Prefix |
+|---|---|---|---|
+| [TrustedSec CS-Situational-Awareness-BOF](https://github.com/trustedsec/CS-Situational-Awareness-BOF) | BOF | 64 | `tsec_` |
+| [Outflank C2-Tool-Collection](https://github.com/outflanknl/C2-Tool-Collection) | BOF | 24 | `outflank_` |
+| [Flangvik SharpCollection](https://github.com/Flangvik/SharpCollection) | .NET | 100 | `sharp_` |
+
+The build pipeline (in the `catalog-builder` Docker stage) clones the three repos at pinned commits, compiles BOFs with `mingw-w64` and .NET tools with `dotnet-sdk-8.0`, copies precompiled SharpCollection binaries, and emits everything to `/opt/kassandra_catalog/` inside the final image. A `manifest.json` lists all available tools.
+
+### Usage
+
+Two new commands are available on every Kassandra callback:
+
+**`listRemote [filter]`** — browse the catalog (runs locally on the payload container, no agent round-trip):
+
+```
+listRemote                    # show all 188 tools
+listRemote kerb               # filter by substring
+listRemote sharp_             # only SharpCollection entries
+```
+
+**`executeRemote -tool_name <name> [-parameters <args>]`** — run a tool from the catalog. The payload container auto-resolves the file, registers it with Mythic, and dispatches to the agent's existing `executeBOF` / `executeDOT` pipeline. No manual upload.
+
+```
+# Run a BOF (no args)
+executeRemote -tool_name tsec_whoami
+
+# BOF with typed args: str:, wstr:, int:, short:, bin: prefixes (no prefix = str)
+executeRemote -tool_name outflank_kerberoast -parameters "str:CIFS/dc01.corp.local"
+executeRemote -tool_name tsec_reg_query -parameters "wstr:HKLM\\SOFTWARE\\Microsoft"
+
+# .NET assembly with space-separated argv
+executeRemote -tool_name sharp_seatbelt -parameters "-group=system"
+executeRemote -tool_name sharp_rubeus -parameters "kerberoast /outfile:C:\\temp\\hashes.txt"
+```
+
+The `tool_name` field in the UI modal populates dynamically from the manifest with all 188 entries.
+
+### Rebuilding / updating the catalog
+
+The three upstream repos are pinned via Docker build args in the `Dockerfile`:
+
+```dockerfile
+ARG TSEC_REF=ee9459cc4f42c6b025797bad22ffe8d9f1cf6487
+ARG OUTFLANK_REF=e371a38c717edaf1650923575ab33bee0dd3e0ee
+ARG SHARP_REF=dad01b93abf5074e72b94218b74bee310f6eb74a
+```
+
+Bump the SHAs and rebuild the payload container to pick up newer tools. Build-time errors are captured in `/opt/kassandra_catalog/build_errors.log` inside the image — a few tools are known to fail the build (e.g. old .NET-Framework-only Outflank projects), and the build continues past individual failures.
+
+### Caveats
+
+- **x64 only** — x86 variants are discarded at build time
+- **Architecture-aware** — catalog is baked at image build, so updating tool versions requires rebuilding the payload container
+- **Training / demo use** — this is intended for the public Kassandra build; operators running private deployments can disable the catalog by commenting out the `COPY --from=catalog-builder` line in the Dockerfile
 
 ## 🔧 Notes
 

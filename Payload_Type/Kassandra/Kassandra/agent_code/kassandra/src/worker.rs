@@ -6,123 +6,7 @@ use std::fs::File;
 use serde_json::Value;
 use base64::engine::general_purpose;
 use base64::Engine;
-use coffee_ldr::loader::Coffee;
-use coffee_ldr::loader::beacon_pack::BeaconPack;
-use clroxide::clr::Clr;
 use zip::ZipArchive;
-
-pub fn run_bof_worker() {
-    let mut input = String::new();
-    std::io::stdin().read_to_string(&mut input).expect("worker: failed to read stdin");
-
-    let data: Value = serde_json::from_str(&input).expect("worker: failed to parse input");
-    let file_bytes = general_purpose::STANDARD
-        .decode(data["file_bytes"].as_str().expect("worker: missing file_bytes"))
-        .expect("worker: failed to decode file_bytes");
-    let params_str = data["parameters"].as_str().unwrap_or("").trim().to_string();
-
-    let mut output = String::new();
-
-    match Coffee::new(file_bytes.as_slice()) {
-        Ok(coffee) => {
-            let mut has_bof_output = false;
-
-            if params_str.is_empty() {
-                match coffee.execute(None, None, &Some("go".to_string())) {
-                    Ok(res) => {
-                        if !res.is_empty() {
-                            has_bof_output = true;
-                        }
-                        output.push_str(&res);
-                    }
-                    Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
-                }
-            } else {
-                let mut pack = BeaconPack::new();
-
-                for arg in params_str.split_whitespace() {
-                    let result = if let Some(val) = arg.strip_prefix("int:") {
-                        val.parse::<i32>()
-                            .map_err(|e| e.to_string().into())
-                            .and_then(|v| pack.add_int(v))
-                    } else if let Some(val) = arg.strip_prefix("short:") {
-                        val.parse::<i16>()
-                            .map_err(|e| e.to_string().into())
-                            .and_then(|v| pack.add_short(v))
-                    } else if let Some(val) = arg.strip_prefix("wstr:") {
-                        pack.add_wstr(val)
-                    } else if let Some(val) = arg.strip_prefix("bin:") {
-                        general_purpose::STANDARD.decode(val)
-                            .map_err(|e| e.to_string().into())
-                            .and_then(|v| pack.add_bin(&v))
-                    } else if let Some(val) = arg.strip_prefix("str:") {
-                        pack.add_str(val)
-                    } else {
-                        pack.add_str(arg)
-                    };
-                    if let Err(e) = result {
-                        output.push_str(&format!("Arg error ({}): {}\n", arg, e));
-                    }
-                }
-
-                match pack.get_buffer() {
-                    Ok(buf) => {
-                        let ptr = buf.as_ptr();
-                        let len = buf.len();
-
-                        match coffee.execute(Some(ptr), Some(len), &Some("go".to_string())) {
-                            Ok(res) => {
-                                if !res.is_empty() {
-                                    has_bof_output = true;
-                                }
-                                output.push_str(&res);
-                            }
-                            Err(e) => output.push_str(&format!("Run error: {:?}\n", e)),
-                        }
-
-                        std::mem::forget(buf);
-                    }
-                    Err(e) => {
-                        output.push_str(&format!("Pack error: {}\n", e));
-                    }
-                }
-            }
-
-            if !has_bof_output {
-                output.insert_str(0, "COFF loaded!\n");
-            }
-        }
-        Err(e) => output.push_str(&format!("Load error: {:?}\n", e)),
-    }
-
-    print!("{}", output);
-}
-
-pub fn run_dot_worker() {
-    let mut input = String::new();
-    std::io::stdin().read_to_string(&mut input).expect("worker: failed to read stdin");
-
-    let data: Value = serde_json::from_str(&input).expect("worker: failed to parse input");
-    let file_bytes = general_purpose::STANDARD
-        .decode(data["file_bytes"].as_str().expect("worker: missing file_bytes"))
-        .expect("worker: failed to decode file_bytes");
-    let params_str = data["parameters"].as_str().unwrap_or("");
-    let args: Vec<String> = params_str.split_whitespace().map(|s| s.to_string()).collect();
-
-    match Clr::new(file_bytes, args) {
-        Ok(mut clr) => match clr.run() {
-            Ok(output) => print!("{}", output),
-            Err(e) => {
-                eprint!("DOT execution error: {:?}", e);
-                std::process::exit(1);
-            }
-        },
-        Err(e) => {
-            eprint!("DOT load error: {:?}", e);
-            std::process::exit(1);
-        }
-    }
-}
 
 pub fn run_py_worker() {
     let mut input = String::new();
@@ -137,8 +21,6 @@ pub fn run_py_worker() {
         .and_then(Value::as_str)
         .filter(|s| !s.is_empty())
         .map(|s| general_purpose::STANDARD.decode(s).expect("worker: failed to decode python_embed_bytes"));
-
-    let mut output = String::new();
 
     let tmp_dir = std::env::temp_dir();
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
@@ -169,7 +51,7 @@ pub fn run_py_worker() {
 
     match cmd.output() {
         Ok(res) => {
-            output.push_str(&String::from_utf8_lossy(&res.stdout));
+            let mut output = String::from_utf8_lossy(&res.stdout).to_string();
             if !res.status.success() {
                 let stderr = String::from_utf8_lossy(&res.stderr);
                 if !stderr.is_empty() {

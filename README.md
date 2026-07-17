@@ -24,6 +24,13 @@ sudo ./mythic-cli install folder /path/to/Kassandra
 
 ## ⚙ Features
 
+* **BusyWork Evasion:**
+
+  * Replaces all `sleep()` calls with [BusyWork](https://github.com/PatchRequest/BusyWork) — real, varied computational work (registry queries, WinAPI calls, crypto ops, memory allocation) instead of idle waiting
+  * Operator-selectable intensity levels (low / medium / high / ultra) control callback frequency
+  * Real program variables (UUIDs, hostnames, response bodies, file bytes, crypto tags) are fed through BusyWork via the `feed()` API, making busywork indistinguishable from real data processing
+  * `churn()` calls distributed across all feature handlers (transport, checkin, tasking, file ops, execution, crypto) to break behavioral patterns at every stage
+
 * **Syscall Evasion:**
 
   * `Hell's Hall` for stealthy syscall resolution
@@ -43,8 +50,11 @@ sudo ./mythic-cli install folder /path/to/Kassandra
 
 * **In-Memory Execution:**
 
-  * Execute **.NET assemblies** in memory
-  * Load and run **Beacon object files (BOF)** in memory
+  * Execute **.NET assemblies** and **Beacon object files (BOF)** via on-demand reflective DLL loading — loader code is never in the agent binary
+  * Standalone loader DLLs downloaded from C2, XOR-encrypted at rest in agent memory, reflectively loaded when needed, wiped after execution
+  * BOF loader: forked [coffee-ldr](https://github.com/hakaioffsec/coffee) with renamed internals
+  * .NET loader: [rustclr](https://github.com/joaoviictorti/rustclr) with `IHostAssemblyStore`-based assembly loading
+  * `loadLoader` command for temporal separation of loader download and execution
   * **Built-in BOF / .NET catalog** baked into the payload container — no manual file upload needed (see below)
 
 * **C2 Transports:**
@@ -125,6 +135,17 @@ Bump the SHAs and rebuild the payload container to pick up newer tools. Build-ti
 - **x64 only** — x86 variants are discarded at build time
 - **Architecture-aware** — catalog is baked at image build, so updating tool versions requires rebuilding the payload container
 - **Training / demo use** — this is intended for the public Kassandra build; operators running private deployments can disable the catalog by commenting out the `COPY --from=catalog-builder` line in the Dockerfile
+
+## 🔧 Build Parameters
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `output` | exe / dll | exe | Output format |
+| `chunk_size` | string | 4096 | Chunk size for upload/download |
+| `busywork_intensity` | low / medium / high / ultra | medium | BusyWork evasion intensity — controls callback frequency through computational work |
+| `no_console` | bool | false | Hide console window |
+| `tailscale_protocol` | http / tcp | http | Transport inside WireGuard tunnel |
+| `doh` | off / cloudflare / google / custom | off | DNS-over-HTTPS for Tailscale hostname resolution |
 
 ## 🔧 Notes
 

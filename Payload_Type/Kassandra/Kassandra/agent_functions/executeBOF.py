@@ -1,6 +1,8 @@
 from mythic_container.MythicCommandBase import *
 from mythic_container.MythicRPC import *
-import json, sys, base64
+import json, sys, pathlib
+
+BOF_LOADER_PATH = pathlib.Path("/opt/loaders/bof_loader.dll")
 
 
 class ExecuteBOFArguments(TaskArguments):
@@ -8,9 +10,9 @@ class ExecuteBOFArguments(TaskArguments):
         super().__init__(command_line, **kwargs)
         self.args = [
             CommandParameter(
-                name="file_id", 
-                type=ParameterType.File, 
-                description="file to upload"
+                name="file_id",
+                type=ParameterType.File,
+                description="BOF file to execute",
             ),
             CommandParameter(
                 name="parameters",
@@ -32,32 +34,37 @@ class ExecuteBOFCommand(CommandBase):
     cmd = "executeBOF"
     needs_admin = False
     help_cmd = "executeBOF"
-    description = (
-        "Executes a BOF "
-    )
-    version = 1
+    description = "Execute a Beacon Object File via reflective in-memory loader"
+    version = 2
     author = "@PatchRequest"
     attackmapping = ["T1132", "T1030", "T1105"]
     argument_class = ExecuteBOFArguments
-
 
     async def create_go_tasking(self, taskData: MythicCommandBase.PTTaskMessageAllData) -> MythicCommandBase.PTTaskCreateTaskingMessageResponse:
         response = MythicCommandBase.PTTaskCreateTaskingMessageResponse(
             TaskID=taskData.Task.ID,
             Success=True,
         )
-        try:
-            file_resp = await SendMythicRPCFileSearch(MythicRPCFileSearchMessage(
+
+        file_resp = await SendMythicRPCFileSearch(MythicRPCFileSearchMessage(
+            TaskID=taskData.Task.ID,
+            AgentFileID=taskData.args.get_arg("file_id"),
+        ))
+
+        loader_file_id = ""
+        if BOF_LOADER_PATH.exists():
+            loader_data = BOF_LOADER_PATH.read_bytes()
+            create_resp = await SendMythicRPCFileCreate(MythicRPCFileCreateMessage(
                 TaskID=taskData.Task.ID,
-                AgentFileID=taskData.args.get_arg("file")
+                FileContents=loader_data,
+                DeleteAfterFetch=False,
             ))
-            #taskData.args.get_arg("parameters")
-                
-        except Exception as e:
-            raise Exception("Error from Mythic: " + str(sys.exc_info()[-1].tb_lineno) + " : " + str(e))
+            if create_resp.Success:
+                loader_file_id = create_resp.AgentFileId
+
+        taskData.args.add_arg("loader_file_id", loader_file_id, type=ParameterType.String)
+
         return response
 
-
     async def process_response(self, task: PTTaskMessageAllData, response: any) -> PTTaskProcessResponseMessageResponse:
-        resp = PTTaskProcessResponseMessageResponse(TaskID=task.Task.ID, Success=True)
-        return resp
+        return PTTaskProcessResponseMessageResponse(TaskID=task.Task.ID, Success=True)

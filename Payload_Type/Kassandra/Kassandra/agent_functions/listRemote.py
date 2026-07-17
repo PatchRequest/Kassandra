@@ -84,7 +84,12 @@ class ListRemoteCommand(CommandBase):
         lines.insert(2, "")
 
         response.DisplayParams = flt if flt else "(all)"
-        response.Stdout = "\n".join(lines)
+        output = "\n".join(lines)
+
+        await SendMythicRPCResponseCreate(MythicRPCResponseCreateMessage(
+            TaskID=taskData.Task.ID,
+            Response=output.encode(),
+        ))
         return response
 
     async def process_response(self, task: PTTaskMessageAllData, response: any) -> PTTaskProcessResponseMessageResponse:

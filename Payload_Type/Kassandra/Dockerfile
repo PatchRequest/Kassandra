@@ -67,15 +67,22 @@ ENV CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
 # Install Go (needed to build tailscale FFI library)
 RUN curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz | tar -C /usr/local -xzf -
 
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2025-05-21
-
+RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2025-04-30 && \
+    rustup +nightly-2025-04-30 target add x86_64-pc-windows-gnu
 
 COPY requirements.txt /
 RUN pip3 install -r /requirements.txt
 
-RUN rustup install nightly-2025-04-30
-RUN rustup override set nightly-2025-04-30
-RUN rustup +nightly-2025-04-30 target add x86_64-pc-windows-gnu
+# Pre-build loader DLLs (BOF + .NET) and encrypt them for on-demand delivery
+COPY Kassandra/agent_code/kassandra/loaders /tmp/loaders
+RUN cd /tmp/loaders/bof-loader && \
+    cargo +nightly-2025-04-30 build --release --target x86_64-pc-windows-gnu && \
+    cd /tmp/loaders/dot-loader && \
+    cargo +nightly-2025-04-30 build --release --target x86_64-pc-windows-gnu && \
+    mkdir -p /opt/loaders && \
+    cp /tmp/loaders/bof-loader/target/x86_64-pc-windows-gnu/release/bof_loader.dll /opt/loaders/bof_loader.dll && \
+    cp /tmp/loaders/dot-loader/target/x86_64-pc-windows-gnu/release/dot_loader.dll /opt/loaders/dot_loader.dll && \
+    rm -rf /tmp/loaders
 
 # Pre-build the Tailscale FFI static library for Windows (cross-compiled via Go + mingw)
 COPY Kassandra/agent_code/kassandra/tailscale_ffi /tmp/tailscale_ffi

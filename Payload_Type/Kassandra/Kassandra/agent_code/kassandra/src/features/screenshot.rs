@@ -47,7 +47,8 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         (w, h, raw_buf)
     };
 
-    // ---- SWAP BGRA -> RGBA ----
+    crate::helpers::churn(&buf[..buf.len().min(4096)]);
+
     let mut buf = buf;
     for pixel in buf.chunks_exact_mut(4) {
         pixel.swap(0, 2);

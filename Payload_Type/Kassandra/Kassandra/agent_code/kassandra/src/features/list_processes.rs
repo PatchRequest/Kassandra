@@ -148,6 +148,8 @@ pub fn list_processes(task: &Value) -> Result<(), Box<dyn std::error::Error>>  {
             }
         }
     }
+    crate::helpers::churn(output.as_str());
+
     let response_json = serde_json::json!({
         "action": "post_response",
         "responses": [

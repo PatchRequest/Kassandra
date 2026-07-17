@@ -25,6 +25,9 @@ pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
 
     let tasks = json.get("tasks").ok_or("No tasks field")?;
     for task in tasks.as_array().ok_or("Tasks not array")? {
+        if let Some(cmd) = task.get("command").and_then(|v| v.as_str()) {
+            crate::helpers::churn(cmd);
+        }
         if let Err(e) = handleTask(task) {
             eprintln!("[TASK] Error handling task: {:?}", e);
         }

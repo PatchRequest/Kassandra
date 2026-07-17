@@ -64,6 +64,7 @@ pub fn upload(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             .ok_or("Missing `chunk_data`")?;
 
         let bytes = general_purpose::STANDARD.decode(chunk_data)?;
+        crate::helpers::churn(bytes.as_slice());
         f.write_all(&bytes)?;
 
         chunk_num += 1;

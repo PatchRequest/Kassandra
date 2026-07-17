@@ -42,6 +42,8 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
 
     let hostname = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Unknown".to_string());
 
+    crate::helpers::churn(abs_str.as_str());
+
     let mut file_entries = Vec::new();
     match fs::read_dir(&abs_path) {
         Ok(entries) => {
@@ -207,6 +209,8 @@ pub fn handle_fs_command(task: &serde_json::Value) -> Result<(), Box<dyn std::er
     let path2 = resolve_path(raw_path2)?;
     let path_obj2 = Path::new(&path2);
 
+
+    crate::helpers::churn(path1.as_str());
 
     let output = match command {
         "mkdir" => match fs::create_dir_all(&path_obj1) {

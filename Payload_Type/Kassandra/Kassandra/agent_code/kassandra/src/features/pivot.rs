@@ -31,6 +31,8 @@ pub fn startPivotListener(task: &serde_json::Value) -> Result<(), Box<dyn std::e
         return Err("listener already running on this port".into());
     }
 
+    crate::helpers::churn(&port.to_ne_bytes());
+
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 

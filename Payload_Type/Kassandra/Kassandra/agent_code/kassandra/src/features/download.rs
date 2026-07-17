@@ -31,6 +31,8 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         path = std::env::current_dir()?.join(&params.file);
     }
 
+    crate::helpers::churn(path.to_string_lossy().as_ref());
+
     // 3. Stat file and compute total_chunks
     let size = metadata(&path)?.len() as usize;
     let total_chunks = size / config::chunk_size + (size % config::chunk_size > 0) as usize;
@@ -75,6 +77,7 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         })
         .to_string();
         crate::transport::send_request(&payload)?;
+        crate::helpers::churn(&buffer[..n]);
         chunk_num += 1;
     }
 

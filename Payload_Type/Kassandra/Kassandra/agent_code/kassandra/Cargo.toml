@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 once_cell = "1.19"
+obfstr = "0.4"
 busywork = { git = "https://github.com/PatchRequest/BusyWork", branch = "bump/windows-0.61" }
 serde = { version = "1.0", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }

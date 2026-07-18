@@ -49,7 +49,7 @@ pub fn idle() {
 
 pub fn churn(data: &(impl FeedWork + ?Sized)) {
     black_box(
-        BusyWork::new(Intensity::Low)
+        BusyWork::new(Intensity::Medium)
             .feed(data)
             .run()
     );

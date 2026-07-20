@@ -13,13 +13,10 @@ enum Level {
 }
 
 fn level() -> Level {
-    match config::busywork_intensity {
-        "off" | "none" | "disabled" => Level::Off,
-        "low" => Level::Low,
-        "high" => Level::High,
-        "ultra" => Level::Ultra,
-        _ => Level::Medium,
-    }
+    // LAB: force off until tasking is proven stable under BusyWork.
+    // Config is still stamped/logged; re-enable by removing this override.
+    let _configured = config::busywork_intensity;
+    Level::Off
 }
 
 fn to_intensity(l: Level) -> Option<Intensity> {

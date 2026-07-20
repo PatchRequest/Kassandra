@@ -155,7 +155,7 @@ fn s3_op(
 
 pub fn register() -> Result<(), Box<dyn std::error::Error>> {
     let runtime_uuid = uuid::Uuid::new_v4().to_string();
-    eprintln!("[REG] Registering with runtime UUID: {}", runtime_uuid);
+    crate::dlog!("[REG] Registering with runtime UUID: {}", runtime_uuid);
 
     let bootstrap_ak = config::s3_bootstrap_access_key_id;
     let bootstrap_sk = config::s3_bootstrap_secret_access_key;
@@ -193,7 +193,7 @@ pub fn register() -> Result<(), Box<dyn std::error::Error>> {
     if result.is_none() {
         return Err("Registration PUT failed (403/404)".into());
     }
-    eprintln!("[REG] Request sent, waiting for credentials...");
+    crate::dlog!("[REG] Request sent, waiting for credentials...");
 
     // Poll for .creds file (up to ~5 minutes)
     let creds_key = format!("register/{}/{}.creds", payload_prefix, runtime_uuid);
@@ -232,7 +232,7 @@ pub fn register() -> Result<(), Box<dyn std::error::Error>> {
         if expected_hash != server_hash {
             return Err("Encrypted key exchange verification failed".into());
         }
-        eprintln!("[REG] Encrypted key exchange verified (AES-256-CBC + HMAC-SHA256)");
+        crate::dlog!("[REG] Encrypted key exchange verified (AES-256-CBC + HMAC-SHA256)");
     }
 
     // Store exec credentials
@@ -253,7 +253,7 @@ pub fn register() -> Result<(), Box<dyn std::error::Error>> {
     let _ = s3_op("DELETE", &creds_key, b"", bootstrap_ak, bootstrap_sk);
 
     // Verify exec credential propagation (IAM takes 5-15s)
-    eprintln!("[REG] Waiting for IAM credential propagation...");
+    crate::dlog!("[REG] Waiting for IAM credential propagation...");
     let probe_key = format!("{}/ats/.probe", exec_prefix);
     let mut propagated = false;
     for _ in 0..12 {
@@ -272,7 +272,7 @@ pub fn register() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Exec credentials failed to propagate after 60s".into());
     }
 
-    eprintln!("[REG] Registered successfully. Exec prefix: {}", exec_prefix);
+    crate::dlog!("[REG] Registered successfully. Exec prefix: {}", exec_prefix);
     Ok(())
 }
 
@@ -312,7 +312,7 @@ fn decrypt_if_enabled(data: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>
 }
 
 pub fn send_and_receive(payload: &str) -> Result<String, Box<dyn std::error::Error>> {
-    println!("[SENDING] {}", payload);
+    crate::dlog!("[SENDING] {}", payload);
 
     let (ak, sk, prefix) = exec_creds();
 
@@ -348,17 +348,17 @@ pub fn send_and_receive(payload: &str) -> Result<String, Box<dyn std::error::Err
                         if raw_str.len() > 36 {
                             let after_uuid = &raw_str[36..];
                             if after_uuid.trim_start().starts_with('{') {
-                                println!("[RECEeved] {}", after_uuid);
+                                crate::dlog!("[RECEeved] {}", after_uuid);
                                 return Ok(after_uuid.to_string());
                             }
                         }
-                        println!("[RECEeved] {}", raw_str);
+                        crate::dlog!("[RECEeved] {}", raw_str);
                         return Ok(raw_str);
                     }
                 }
 
                 // Fallback: raw JSON
-                println!("[RECEeved] {}", response_text);
+                crate::dlog!("[RECEeved] {}", response_text);
                 return Ok(response_text);
             }
             None => continue,

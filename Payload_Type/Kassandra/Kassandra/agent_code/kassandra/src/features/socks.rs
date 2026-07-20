@@ -80,17 +80,17 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         };
 
         let target_addr = format!("{}:{}", addr, port);
-        println!("[DEBUG] target_addr: {}", target_addr);
-        println!("[DEBUG] payload bytes: {:?}", &payload[..std::cmp::min(payload.len(), 32)]);
-        println!("[DEBUG] atyp: {}, addr: {}, port: {}", atyp, addr, port);
+        crate::dlog!("[DEBUG] target_addr: {}", target_addr);
+        crate::dlog!("[DEBUG] payload bytes: {:?}", &payload[..std::cmp::min(payload.len(), 32)]);
+        crate::dlog!("[DEBUG] atyp: {}, addr: {}, port: {}", atyp, addr, port);
 
         let stream = match TcpStream::connect(&target_addr) {
             Ok(s) => {
-                println!("[DEBUG] TcpStream::connect succeeded");
+                crate::dlog!("[DEBUG] TcpStream::connect succeeded");
                 s
             },
             Err(e) => {
-                println!("[DEBUG] TcpStream::connect failed: {:?}", e);
+                crate::dlog!("[DEBUG] TcpStream::connect failed: {:?}", e);
                 return Err(e.into());
             }
         };
@@ -131,7 +131,7 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(stream) = conns.get_mut(&server_id) {
         // Write incoming SOCKS payload to TCP stream
         if let Err(e) = stream.write_all(&payload) {
-            println!("[SOCKS] Write error, removing connection: {:?}", e);
+            crate::dlog!("[SOCKS] Write error, removing connection: {:?}", e);
             drop(conns);
             CONNECTIONS.lock()?.remove(&server_id);
             return Err(e.into());
@@ -149,13 +149,13 @@ pub fn handle_socks(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             match stream.read(&mut buf) {
                 Ok(0) => {
                     // Connection closed by remote
-                    println!("[SOCKS] Connection closed by remote");
+                    crate::dlog!("[SOCKS] Connection closed by remote");
                     break;
                 }
                 Ok(n) => response_data.extend_from_slice(&buf[..n]),
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => {
-                    println!("[SOCKS] Read error: {:?}", e);
+                    crate::dlog!("[SOCKS] Read error: {:?}", e);
                     break;
                 }
             }

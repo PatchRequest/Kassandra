@@ -35,8 +35,6 @@ pub fn send_request_raw(payload: &str) -> Result<String, Box<dyn std::error::Err
 fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn std::error::Error>> {
     crate::helpers::churn(payload.as_bytes());
 
-    let uuid = config::UUID.read().unwrap();
-    let full_msg = format!("{}{}", *uuid, payload);
     let encoded = if encode {
         let uuid = config::UUID.read().unwrap();
         let full_msg = format!("{}{}", *uuid, payload);

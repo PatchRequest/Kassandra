@@ -69,15 +69,21 @@ class KassandraAgent(PayloadType):
         BuildParameter(
             name="no_console",
             parameter_type=BuildParameterType.Boolean,
-            default_value=False,
-            description="Hide console window (sets windows_subsystem = windows for full stealth)",
+            default_value=True,
+            description="Hide console window (windows_subsystem = windows). On by default for production.",
         ),
         BuildParameter(
             name="busywork_intensity",
             parameter_type=BuildParameterType.ChooseOne,
             choices=["off", "low", "medium", "high", "ultra"],
-            default_value="low",
-            description="BusyWork evasion intensity — replaces sleep with real computational work. Use 'off' or 'low' for lab testing.",
+            default_value="medium",
+            description="BusyWork evasion intensity between tasking rounds. Use 'off' or 'low' only for lab debugging.",
+        ),
+        BuildParameter(
+            name="debug_log",
+            parameter_type=BuildParameterType.Boolean,
+            default_value=False,
+            description="Lab only: write lifecycle diagnostics to %TEMP%\\kassandra_debug.log. Leave off in production.",
         ),
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
@@ -356,6 +362,8 @@ class KassandraAgent(PayloadType):
             features.append("tailscale")
         if self.get_parameter("no_console"):
             features.append("no_console")
+        if self.get_parameter("debug_log"):
+            features.append("debug_log")
         features_flag = f"--features {','.join(features)}" if features else ""
 
         if output_format == "dll":

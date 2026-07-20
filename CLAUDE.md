@@ -94,7 +94,12 @@ Used for:
 
 ### BusyWork Evasion (helpers.rs)
 
-Replaces `thread::sleep` with real computational work via the `busywork` crate (`PatchRequest/BusyWork` branch `bump/windows-0.61`). Levels: `off` / `low` / `medium` / `high` / `ultra` (stamped from builder). `idle()` runs three BusyWork bursts (+ short sleeps) between tasking rounds; `churn()` is lighter noise around crypto/I/O (capped at Medium). Intensity must stay a real ladder — see lab notes below if Medium looks like milliseconds.
+Replaces fixed-cadence `sleep` with real work via `busywork` (`PatchRequest/BusyWork` branch `bump/windows-0.61`). Levels: `off` / `low` / `medium` / `high` / `ultra`.
+
+- **`idle()`** — one full-intensity burst between tasking rounds (callback interval). Short jittered yield after. This is the main anti-sleep surface.
+- **`churn()`** — always Low, COMPUTE|MEMORY only; used at feature boundaries (not every HTTP POST). Must not starve C2.
+- **`startup_delay()`** — one burst at configured intensity before first check-in.
+- Transport path does **not** call BusyWork (chunked downloads issue many POSTs).
 
 ### Reflective In-Memory Loader (reflective_loader.rs, loader_cache.rs, mem_wipe.rs)
 
@@ -247,11 +252,14 @@ Empty get_tasking body is ~38 bytes: `{"action": "get_tasking", "tasks": []}`. N
 
 ### Timing expectations
 
-- BusyWork `off` / lab force-idle: ~200 ms between rounds
-- BusyWork `medium`: multi-second bursts (3× per `idle()`); do not mistake C2 hangs for BusyWork
-- Multi-minute hang after POST with callback already created on Mythic = **infra** (RabbitMQ/disk/translator), not BusyWork intensity
+- **`idle()`** = one BusyWork burst at configured intensity + short jittered yield (not 3× full bursts)
+- **`churn()`** = always Low + COMPUTE|MEMORY only; never on the raw HTTP transport path
+- BusyWork `off`: jittered ~80–280 ms sleep between rounds
+- BusyWork `medium`: multi-second gap between rounds is normal; tasks should still leave `submitted` within one idle cycle once the agent polls
+- Multi-minute hang after POST with callback already created on Mythic = **infra** (RabbitMQ/disk/translator)
+- Never curl `get_tasking` for a live agent UUID — steals tasks into orphaned `agent processing`
 
-BusyWork intensity ladder lives in the separate repo `PatchRequest/BusyWork` branch `bump/windows-0.61`. Kassandra pins that branch in `Cargo.toml` / `Cargo.lock`.
+BusyWork intensity ladder lives in `PatchRequest/BusyWork` branch `bump/windows-0.61`.
 
 ### Minimal end-to-end checklist
 

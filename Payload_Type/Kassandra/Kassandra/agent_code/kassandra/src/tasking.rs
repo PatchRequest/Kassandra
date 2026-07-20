@@ -30,6 +30,8 @@ pub fn getTasking() -> Result<(), Box<dyn std::error::Error>> {
     let arr = tasks.as_array().ok_or("Tasks not array")?;
     crate::dlog!("getTasking: {} task(s)", arr.len());
     for task in arr {
+        // Light noise once per task (churn is Low/compute-only). Full
+        // interval work is idle() after the whole batch.
         if let Some(cmd) = task.get("command").and_then(|v| v.as_str()) {
             crate::helpers::churn(cmd);
         }

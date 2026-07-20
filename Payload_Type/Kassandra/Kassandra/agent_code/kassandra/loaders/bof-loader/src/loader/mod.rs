@@ -16,16 +16,10 @@ macro_rules! info { ($($t:tt)*) => {} }
 macro_rules! warn { ($($t:tt)*) => {} }
 use windows::{
     core::{PCSTR, PCWSTR},
-    Win32::System::{
-        LibraryLoader::{GetProcAddress, LoadLibraryW},
-        Memory::{
-            VirtualAlloc, VirtualFree, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
-            PAGE_EXECUTE_READWRITE, VIRTUAL_ALLOCATION_TYPE,
-        },
-        SystemServices::MEM_TOP_DOWN,
-    },
+    Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW},
 };
 
+use crate::nt_mem;
 use self::beacon_api::{beacon_get_output_data, get_function_ptr, INTERNAL_FUNCTION_NAMES};
 
 pub mod beacon_api;
@@ -48,11 +42,10 @@ impl ResolvedImports {
     /// `new` returns a new `ResolvedImports` struct.
     fn new() -> Result<*mut Self, Box<dyn std::error::Error>> {
         Ok(std::ptr::from_mut(unsafe {
-            let allocation = VirtualAlloc(
-                None,
+            let allocation = nt_mem::allocate_local(
                 core::mem::size_of::<ResolvedImports>(),
-                MEM_COMMIT | MEM_RESERVE | VIRTUAL_ALLOCATION_TYPE(MEM_TOP_DOWN),
-                PAGE_EXECUTE_READWRITE,
+                nt_mem::PAGE_EXECUTE_READWRITE,
+                true,
             );
 
             if allocation.is_null() {
@@ -77,7 +70,7 @@ impl Drop for ResolvedImports {
     fn drop(&mut self) {
         unsafe {
             let functions = std::ptr::from_mut(self).cast::<c_void>();
-            let _ = VirtualFree(functions, 0, MEM_RELEASE);
+            nt_mem::free_local(functions);
         }
     }
 }
@@ -311,12 +304,7 @@ impl<'a> ObjectLoader<'a> {
             let section_size = section.size_of_raw_data as usize;
 
             let section_base = unsafe {
-                VirtualAlloc(
-                    None,
-                    section_size,
-                    MEM_COMMIT | MEM_RESERVE | VIRTUAL_ALLOCATION_TYPE(MEM_TOP_DOWN),
-                    PAGE_EXECUTE_READWRITE,
-                )
+                nt_mem::allocate_local(section_size, nt_mem::PAGE_EXECUTE_READWRITE, true)
             };
 
             if section_base.is_null() {
@@ -808,7 +796,7 @@ impl<'a> ObjectLoader<'a> {
         Ok(())
     }
 
-    /// Iterates through each section and frees the memory allocated for each section using `VirtualFree`.
+    /// Iterates through each section and frees the memory allocated for each section.
     /// This is done to prevent memory leaks.
     fn free_bof_memory(&self) {
         unsafe {
@@ -823,7 +811,7 @@ impl<'a> ObjectLoader<'a> {
             }
 
             unsafe {
-                let _ = VirtualFree(section_base as *mut c_void, 0, MEM_RELEASE);
+                nt_mem::free_local(section_base as *mut c_void);
             }
         }
     }

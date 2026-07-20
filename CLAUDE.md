@@ -32,13 +32,12 @@ Payload_Type/Kassandra/
         worker.rs                 # Subprocess workers for BOF/DOT/PY execution
         helpers.rs                # BusyWork evasion integration
         crypto.rs                 # AES-256-CBC + HMAC-SHA256 (encrypt-then-MAC)
-        hellshall/mod.rs          # Hell's Hall syscall resolution (CRC32 hash, SSN extraction)
+        nt_mem.rs                 # Local-process memory helpers via CallGhost indirect syscalls
         selfprotect/mod.rs        # DACL manipulation to block process access
         features/*.rs             # One module per command
       tailscale_ffi/              # Go cgo library wrapping tsnet
-      src/asm/hellsasm.asm        # NASM syscall trampoline (SetSSn/RunSyscall)
       coffee-patched/             # Patched fork of coffee-ldr for BOF execution
-      build.rs                    # Links hellsasm.asm + tailscale FFI library
+      build.rs                    # Links tailscale FFI library when feature enabled
 ```
 
 ## Build System
@@ -63,7 +62,6 @@ Payload_Type/Kassandra/
 
 ### Build dependencies (build.rs)
 
-- NASM compiles `hellsasm.asm` into a static library for the syscall trampoline
 - When `tailscale` feature is on, links `/opt/tailscale_ffi/libtailscale_ffi.a` plus Windows system libraries needed by Go runtime
 
 ## Architecture
@@ -83,9 +81,16 @@ Payload_Type/Kassandra/
 2. **S3**: Agent-to-server via S3 objects. Uses AWS SigV4 signing. Two-phase credential model: bootstrap keys (build-time) -> per-execution keys (runtime). Messages go in `{prefix}/ats/{uuid}.obj`, responses come back at `{prefix}/sta/{uuid}.obj`. Optional AES-256-CBC + HMAC-SHA256 encryption.
 3. **HTTP**: Direct POST to callback host. Base64-encoded `{uuid}{payload}` body.
 
-### Indirect Syscalls (hellshall/)
+### Indirect Syscalls (CallGhost)
 
-Hell's Hall implementation: walks the PEB to find ntdll exports, resolves SSNs by CRC32 hash lookup, handles EDR hooks by scanning neighboring syscall stubs (up/down pattern). The NASM trampoline (`SetSSn`/`RunSyscall`) executes the actual syscall instruction from a legitimate ntdll address. Used by `checkin.rs` for `NtQuerySystemInformation`, `NtQueryInformationProcess`, `NtOpenProcessToken`, `NtQueryInformationToken`.
+Uses [CallGhost](https://github.com/PatchRequest/CallGhost) (`syscall!(indirect, NtFoo, ...)`) for direct/indirect syscalls with Halo's Gate SSN resolution and SSN caching. The old Hell's Hall + NASM trampoline was removed.
+
+Used for:
+- `checkin.rs` — host/user/pid collection (`NtQuerySystemInformation`, `NtQueryInformationProcess`, `NtOpenProcessToken`, `NtQueryInformationToken`)
+- `list_processes` / `selfclone` — process enumeration and `NtOpenProcess`
+- `reflective_loader` / `mem_wipe` / `nt_mem` — `NtAllocateVirtualMemory`, `NtProtectVirtualMemory`, `NtFreeVirtualMemory`, `NtClose`
+- `selfdelete` — `NtCreateFile`, `NtSetInformationFile`, `NtClose`
+- `bof-loader` — local/remote memory + injection (`NtAllocateVirtualMemory`, `NtWriteVirtualMemory`, `NtCreateThreadEx`, `NtOpenProcess`)
 
 ### BusyWork Evasion (helpers.rs)
 

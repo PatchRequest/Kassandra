@@ -26,7 +26,7 @@ mod features {
     pub mod selfclone;
     pub mod loadLoader;
 }
-mod hellshall;
+mod nt_mem;
 mod selfprotect;
 mod worker;
 mod helpers;

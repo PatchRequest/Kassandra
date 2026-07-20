@@ -65,11 +65,11 @@ pub fn upload(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
             .ok_or("Missing `chunk_data`")?;
 
         let bytes = general_purpose::STANDARD.decode(chunk_data)?;
-        crate::helpers::churn(bytes.as_slice());
         f.write_all(&bytes)?;
 
         chunk_num += 1;
     }
+    crate::helpers::churn(path.to_string_lossy().as_ref());
 
     // 5. Send final success
     let resp_json = serde_json::json!({

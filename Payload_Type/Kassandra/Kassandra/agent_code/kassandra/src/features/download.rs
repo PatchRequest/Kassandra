@@ -80,7 +80,7 @@ pub fn download(task: &Value) -> Result<(), Box<dyn std::error::Error>> {
         crate::transport::send_request(&payload)?;
         chunk_num += 1;
     }
-    crate::helpers::churn(&path.to_string_lossy());
+    crate::helpers::churn(path.to_string_lossy().as_ref());
 
     // 6. Final success response with the new agent file ID
     let done = serde_json::json!({

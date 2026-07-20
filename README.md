@@ -1,9 +1,8 @@
-# Kassandra - Rust Mythic Agent
+# Kassandra — Rust Mythic Agent
 
-**Kassandra** is a custom Mythic C2 agent written in **Rust**, containerized via a **Python-based builder**. It is currently in development and includes several advanced post-exploitation and pivoting features. 
+**Kassandra** is a custom [Mythic](https://github.com/its-a-feature/Mythic) C2 agent written in **Rust**, packaged as a **Python payload-type container**. It targets **Windows x86_64**, cross-compiled from Linux via `x86_64-pc-windows-gnu`.
 
-
-> This public release of the agent does not include all implemented obfuscation and defense evasion techniques. Several components such as advanced in-memory obfuscation, indirect syscalls, and full transport stealth—have been stripped or simplified intentionally to limit abuse and make replication harder for script kiddies. The full version remains private for controlled red team use.
+> This public release does not include every private obfuscation / defense-evasion technique. Some components are simplified intentionally. The full private build remains controlled red-team use only.
 
 <p align="center">
   <img src="./KassandraLogo.png" width="400" />
@@ -11,178 +10,217 @@
 
 ## Installation
 
-From the Mythic install directory, use the following command to install Kassandra:
+From the Mythic install directory:
+
 ```bash
 cd /path/to/Mythic
 sudo ./mythic-cli install github https://github.com/PatchRequest/Kassandra
 ```
 
 Or from a local folder:
+
 ```bash
 sudo ./mythic-cli install folder /path/to/Kassandra
 ```
 
-## ⚙ Features
+**Case note:** `mythic-cli` may create `InstalledServices/Kassandra` while Docker Compose expects lowercase `kassandra`. Rename if needed:
 
-* **BusyWork Evasion:**
-
-  * Replaces all `sleep()` calls with [BusyWork](https://github.com/PatchRequest/BusyWork) — real, varied computational work (registry queries, WinAPI calls, crypto ops, memory allocation) instead of idle waiting
-  * Operator-selectable intensity levels (low / medium / high / ultra) control callback frequency
-  * Real program variables (UUIDs, hostnames, response bodies, file bytes, crypto tags) are fed through BusyWork via the `feed()` API, making busywork indistinguishable from real data processing
-  * `churn()` calls distributed across all feature handlers (transport, checkin, tasking, file ops, execution, crypto) to break behavioral patterns at every stage
-
-* **Syscall Evasion:**
-
-  * `Hell's Hall` for stealthy syscall resolution
-
-* **Security Context Control:**
-
-  * Modify the **Security Descriptor** of the current process to restrict/allow interaction
-
-* **Filesystem Ops:**
-
-  * Upload / Download files
-  * Enumerate directories and file attributes
-
-* **Process Management:**
-
-  * List running processes
-
-* **In-Memory Execution:**
-
-  * Execute **.NET assemblies** and **Beacon object files (BOF)** via on-demand reflective DLL loading — loader code is never in the agent binary
-  * Standalone loader DLLs downloaded from C2, XOR-encrypted at rest in agent memory, reflectively loaded when needed, wiped after execution
-  * BOF loader: forked [coffee-ldr](https://github.com/hakaioffsec/coffee) with renamed internals
-  * .NET loader: [rustclr](https://github.com/joaoviictorti/rustclr) with `IHostAssemblyStore`-based assembly loading
-  * `loadLoader` command for temporal separation of loader download and execution
-  * **Built-in BOF / .NET catalog** baked into the payload container — no manual file upload needed (see below)
-
-* **C2 Transports:**
-
-  * **HTTP** — Standard Mythic HTTP C2 profile
-  * **[S3 Storage](https://github.com/Yeeb1/awss3)** — S3-based C2 transport with AWS SigV4 signing, bootstrap registration for per-execution IAM credential isolation, and AES-256-CBC encryption with HMAC-SHA256 (EKE)
-  * **[Tailscale](https://github.com/Yeeb1/mythic_tailscale)** — Embedded Tailscale/Headscale C2 transport via Go FFI, supporting HTTP and raw TCP protocols over WireGuard tunnels with optional DNS-over-HTTPS
-
-* **Proxy & Pivot:**
-
-  * Start a **socket proxy** tunnel via the teamserver
-  * Use the agent as a **pivot endpoint** for other agents
-
-* **Execution:**
-
-  * Run arbitrary **PowerShell commands**
-
-* **Reconnaissance:**
-
-  * Take screenshots (GDI-based capture, PNG-encoded)
-
-
-## 📦 Built-in BOF / .NET Catalog
-
-Kassandra's payload container bundles a ready-to-use catalog of **188 tools** from three well-known collections, compiled at image build time:
-
-| Source | Type | Count | Prefix |
-|---|---|---|---|
-| [TrustedSec CS-Situational-Awareness-BOF](https://github.com/trustedsec/CS-Situational-Awareness-BOF) | BOF | 64 | `tsec_` |
-| [Outflank C2-Tool-Collection](https://github.com/outflanknl/C2-Tool-Collection) | BOF | 24 | `outflank_` |
-| [Flangvik SharpCollection](https://github.com/Flangvik/SharpCollection) | .NET | 100 | `sharp_` |
-
-The build pipeline (in the `catalog-builder` Docker stage) clones the three repos at pinned commits, compiles BOFs with `mingw-w64` and .NET tools with `dotnet-sdk-8.0`, copies precompiled SharpCollection binaries, and emits everything to `/opt/kassandra_catalog/` inside the final image. A `manifest.json` lists all available tools.
-
-### Usage
-
-Two new commands are available on every Kassandra callback:
-
-**`listRemote [filter]`** — browse the catalog (runs locally on the payload container, no agent round-trip):
-
-```
-listRemote                    # show all 188 tools
-listRemote kerb               # filter by substring
-listRemote sharp_             # only SharpCollection entries
+```bash
+sudo mv InstalledServices/Kassandra InstalledServices/kassandra
+sudo docker compose build kassandra && sudo docker compose up -d kassandra
 ```
 
-**`executeRemote -tool_name <name> [-parameters <args>]`** — run a tool from the catalog. The payload container auto-resolves the file, registers it with Mythic, and dispatches to the agent's existing `executeBOF` / `executeDOT` pipeline. No manual upload.
+---
 
+## Features
+
+### BusyWork evasion ([BusyWork](https://github.com/PatchRequest/BusyWork))
+
+Replaces fixed-cadence `sleep()` with **real, varied work** (compute, memory, WinAPI, registry, crypto, …) so callback intervals do not look like pure idle-then-act beacons.
+
+| API | Role |
+|-----|------|
+| `idle()` | **One** full-intensity burst between tasking rounds + short jittered yield. Main callback-interval surface. |
+| `churn()` | Always **Low**, **COMPUTE \| MEMORY** only — light noise at feature boundaries (not on every HTTP POST). |
+| `startup_delay()` | One burst at configured intensity before first check-in. |
+
+- Operator-selectable levels: **`off` / `low` / `medium` / `high` / `ultra`**
+- Real program data is fed in via `feed()` (UUID, host, paths, outputs, …)
+- **C2 transport path does not run BusyWork** — chunked uploads/downloads issue many POSTs; heavy work stays in `idle()` so Medium/High remain usable without starving tasking
+- Intensity ladder lives in BusyWork (`bump/windows-0.61`); levels must stay a real volume ladder (no flattening `.min(N)` caps)
+
+### Indirect syscalls ([CallGhost](https://github.com/PatchRequest/CallGhost))
+
+Hell’s Hall + NASM trampoline was **replaced** with CallGhost:
+
+```rust
+syscall!(indirect, NtFoo, /* args */);
 ```
-# Run a BOF (no args)
+
+Halo’s Gate SSN resolution, SSN caching, used across:
+
+- Check-in (host / user / PID)
+- Process list & selfclone
+- Reflective loader / mem wipe / local Nt helpers
+- Self-delete
+- BOF loader injection primitives
+
+### Process hardening (`selfprotect`)
+
+Sets a restrictive process DACL (deny Everyone generic-all; allow System + owner) so casual handle opens against the implant process fail. Failures are silent (no `eprintln`).
+
+### In-memory BOF / .NET execution
+
+Loader code is **not** linked into the agent binary:
+
+1. Standalone `bof_loader.dll` / `dot_loader.dll` built in Docker → `/opt/loaders/`
+2. Agent downloads loaders from C2, stores them **XOR-encrypted** in memory (`loader_cache`)
+3. Reflective load → `execute_bof` / `execute_dot` → wipe (`mem_wipe`)
+
+| Piece | Notes |
+|-------|--------|
+| BOF | Forked/renamed coffee-ldr style loader |
+| .NET | `clroxide`-based `dot-loader` |
+| Python | Still subprocess worker (`--worker-py`) |
+| `loadLoader` | Pre-stage loaders (temporal separation from execution) |
+
+### Built-in BOF / .NET catalog
+
+Docker **catalog-builder** stage compiles tools from pinned upstream commits into `/opt/kassandra_catalog` + `manifest.json`.
+
+| Source | Type | Prefix |
+|--------|------|--------|
+| [TrustedSec CS-SA-BOF](https://github.com/trustedsec/CS-Situational-Awareness-BOF) | BOF | `tsec_` |
+| [Outflank C2-Tool-Collection](https://github.com/outflanknl/C2-Tool-Collection) | BOF | `outflank_` |
+| [Flangvik SharpCollection](https://github.com/Flangvik/SharpCollection) | .NET | `sharp_` |
+
+- **`listRemote [filter]`** — server-side only (no agent round-trip)
+- **`executeRemote -tool_name <name> [-parameters …]`** — container registers the file and rewrites the task to `executeBOF` / `executeDOT`
+
+```text
+listRemote kerb
 executeRemote -tool_name tsec_whoami
-
-# BOF with typed args: str:, wstr:, int:, short:, bin: prefixes (no prefix = str)
-executeRemote -tool_name outflank_kerberoast -parameters "str:CIFS/dc01.corp.local"
-executeRemote -tool_name tsec_reg_query -parameters "wstr:HKLM\\SOFTWARE\\Microsoft"
-
-# .NET assembly with space-separated argv
 executeRemote -tool_name sharp_seatbelt -parameters "-group=system"
-executeRemote -tool_name sharp_rubeus -parameters "kerberoast /outfile:C:\\temp\\hashes.txt"
 ```
 
-The `tool_name` field in the UI modal populates dynamically from the manifest with all 188 entries.
+### C2 transports
 
-### Rebuilding / updating the catalog
+Priority dispatch in `transport.rs`:
 
-The three upstream repos are pinned via Docker build args in the `Dockerfile`:
+1. **Tailscale** (feature) — embedded tsnet / WireGuard via Go FFI; HTTP or raw TCP inside the tunnel; optional DoH
+2. **S3** — SigV4, bootstrap → per-execution IAM creds, optional AES-256-CBC + HMAC-SHA256 (EKE)
+3. **HTTP** — Mythic HTTP profile; body `base64(uuid ‖ json)`
 
-```dockerfile
-ARG TSEC_REF=ee9459cc4f42c6b025797bad22ffe8d9f1cf6487
-ARG OUTFLANK_REF=e371a38c717edaf1650923575ab33bee0dd3e0ee
-ARG SHARP_REF=dad01b93abf5074e72b94218b74bee310f6eb74a
-```
+Translation container **`KassandraTranslator`** is a JSON pass-through (`mythic_encrypts = false`).
 
-Bump the SHAs and rebuild the payload container to pick up newer tools. Build-time errors are captured in `/opt/kassandra_catalog/build_errors.log` inside the image — a few tools are known to fail the build (e.g. old .NET-Framework-only Outflank projects), and the build continues past individual failures.
+### Proxy & pivot
 
-### Caveats
+- SOCKS via Mythic
+- Pivot listeners (`start_pivot` / `stop_pivot` / `list_pivot`)
 
-- **x64 only** — x86 variants are discarded at build time
-- **Architecture-aware** — catalog is baked at image build, so updating tool versions requires rebuilding the payload container
-- **Training / demo use** — this is intended for the public Kassandra build; operators running private deployments can disable the catalog by commenting out the `COPY --from=catalog-builder` line in the Dockerfile
+### Core agent ops
 
-## 🔧 Build Parameters
+Filesystem (ls/rm/mkdir/mv/cp/touch/pwd), upload/download, process list (`ps` / `psw`), screenshot, selfdelete, selfclone, ping, exit.
+
+---
+
+## Build parameters
 
 | Parameter | Type | Default | Description |
-|---|---|---|---|
+|-----------|------|---------|-------------|
 | `output` | exe / dll | exe | Output format |
-| `chunk_size` | string | 4096 | Chunk size for upload/download |
-| `busywork_intensity` | low / medium / high / ultra | medium | BusyWork evasion intensity — controls callback frequency through computational work |
-| `no_console` | bool | false | Hide console window |
-| `tailscale_protocol` | http / tcp | http | Transport inside WireGuard tunnel |
-| `doh` | off / cloudflare / google / custom | off | DNS-over-HTTPS for Tailscale hostname resolution |
+| `chunk_size` | string | 4096 | Upload/download chunk size |
+| `busywork_intensity` | off / low / medium / high / ultra | **medium** | BusyWork intensity for `idle` / startup |
+| `no_console` | bool | **true** | `windows_subsystem = windows` |
+| `debug_log` | bool | **false** | Lab only: lifecycle log → `%TEMP%\kassandra_debug.log` (cargo feature `debug_log`) |
+| `tailscale_protocol` | http / tcp | http | Protocol inside WireGuard |
+| `doh` | off / cloudflare / google / custom | off | DoH for Tailscale DNS |
+| `doh_url` | string | — | Custom DoH URL when `doh=custom` |
 
-## 🔧 Notes
+**Production defaults:** `no_console=true`, `busywork=medium`, `debug_log=false`.  
+**Lab:** prefer `debug_log=true` and `busywork=off` or `low` while debugging tasking.
 
-* **Not yet complete:**
+### Cargo features
 
-  * Full encryption of transport and task responses
+| Feature | Effect |
+|---------|--------|
+| `tailscale` | Tailscale transport + link Go FFI |
+| `no_console` | Hide console window |
+| `debug_log` | Enable `dlog!` file logging (otherwise compile-time no-op) |
 
+---
 
-## 📁 Structure
+## Architecture (short)
 
+```text
+checkin (CallGhost syscalls for host/user/pid)
+    → main loop:
+         get_tasking  →  handleTask  →  idle() BusyWork
 ```
-/agent_code/kassandra/
-├── src/
-│   ├── main.rs
-│   ├── transport/
-│   ├── tasks/
-│   └── ...
-├── build.rs
-└── Cargo.toml
+
+Reflective path:
+
+```text
+loadLoader / on-demand download
+    → XOR cache → reflective_loader → execute_bof / execute_dot → mem wipe
 ```
 
-## Blog Posts
+Related repos:
 
-This project has an accompanying blog series on [patchi.fyi](https://patchi.fyi):
+- [BusyWork](https://github.com/PatchRequest/BusyWork) — intensity work engine (`bump/windows-0.61`)
+- [CallGhost](https://github.com/PatchRequest/CallGhost) — indirect syscalls
+
+---
+
+## Repository layout
+
+```text
+Payload_Type/Kassandra/
+  Dockerfile                 # catalog-builder + runtime
+  build_catalog.sh
+  main.py
+  translator/translator.py
+  Kassandra/
+    agent_functions/         # Mythic commands + builder.py
+    agent_code/kassandra/    # Rust implant
+      src/                   # main, tasking, transport, features, …
+      loaders/               # bof-loader, dot-loader (cdylib)
+      tailscale_ffi/         # Go tsnet wrapper
+```
+
+---
+
+## Design notes (recent)
+
+Ideas baked into the current public tree:
+
+1. **Evasion without starving C2** — heavy BusyWork only between rounds (`idle`); light `churn` at boundaries; never on raw HTTP I/O.
+2. **Loaders out of the implant** — reflective DLLs staged from C2; optional `loadLoader` for OPSEC timing.
+3. **Catalog as container content** — operators run tools without manual uploads; agent only sees normal BOF/DOT tasks.
+4. **Syscalls via a maintained crate** — CallGhost instead of a bespoke Hell’s Hall + ASM stack.
+5. **Silent production build** — no debug file/stderr unless `debug_log` is explicitly enabled at build time.
+6. **Self-protect by default** — DACL lockdown on EXE and DLL entry (lab builds should not permanently disable this).
+
+---
+
+## Blog posts
+
+Series on [patchi.fyi](https://patchi.fyi):
 
 - [Architecture Overview](https://patchi.fyi/blog/kassandra-architecture-overview/)
-- [Hell's Hall Syscalls](https://patchi.fyi/blog/kassandra-hells-hall-syscalls/)
+- [Hell's Hall Syscalls](https://patchi.fyi/blog/kassandra-hells-hall-syscalls/) *(historical; agent now uses CallGhost)*
 - [S3 Transport](https://patchi.fyi/blog/kassandra-s3-transport/)
 - [In-Memory Execution](https://patchi.fyi/blog/kassandra-in-memory-execution/)
 - [Process Hardening](https://patchi.fyi/blog/kassandra-process-hardening/)
 
+---
+
 ## Disclaimer
 
-This project is for **educational and red teaming** purposes only. Do not use without proper authorization.
+Educational and authorized red-team use only. Do not use without proper authorization.
 
 ---
 
-Thanks to [@Yeeb1](https://github.com/Yeeb1) for contributing the [awss3](https://github.com/Yeeb1/awss3) S3 Storage C2 profile integration, the [Tailscale C2 transport](https://github.com/Yeeb1/mythic_tailscale), and agent improvements
+Thanks to [@Yeeb1](https://github.com/Yeeb1) for the [awss3](https://github.com/Yeeb1/awss3) S3 C2 profile, [Tailscale C2](https://github.com/Yeeb1/mythic_tailscale), and agent improvements.
 
-Thanks to MalDevAcademy for their high-quality malware development training, VX-Underground for curating an essential archive of offensive research, and also to @ZkClown and Ze_Asimovitch for their continuous inspiration and contributions to the red teaming community
+Thanks to MalDevAcademy, VX-Underground, @ZkClown, and Ze_Asimovitch for training, archives, and inspiration in the red-team community.

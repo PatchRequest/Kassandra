@@ -112,7 +112,7 @@ checksum = "1628fb46dfa0b37568d12e5edd512553eccf6a22a78e8bde00bb4aed84d5bdbf"
 [[package]]
 name = "busywork"
 version = "0.1.0"
-source = "git+https://github.com/PatchRequest/BusyWork?branch=bump%2Fwindows-0.61#5d0ab8b212d124ecf1473a4688f701356e3ef8cc"
+source = "git+https://github.com/PatchRequest/BusyWork?branch=bump%2Fwindows-0.61#ed942d892f19ffda5e111874d7f2a255a59a8037"
 dependencies = [
  "bitflags 2.9.1",
  "flate2",

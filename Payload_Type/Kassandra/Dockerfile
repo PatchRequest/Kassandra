@@ -54,20 +54,18 @@ RUN apt-get update && \
       xz-utils tk-dev libffi-dev liblzma-dev \
       libsqlite3-dev protobuf-compiler \
       software-properties-common apt-utils \
-      mingw-w64 \
-      osslsigncode openssl && \
+      mingw-w64 && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=catalog-builder /catalog /opt/kassandra_catalog
 
-# BinaryFiller corpus (ops fail policy — no synthetic filler in engagement builds).
-# Ship pre-ingested components + bundled goodware notices from PatchRequest/BinaryFiller.
+# BinaryFiller: corpus (ops fail policy) + source for prebuilding the stamp-cert CLI.
+# Bundled goodware PEs under corpus/bundled/ are Authenticode donors for post-link cert clone.
 ARG BINARY_FILLER_REF=main
 RUN git clone --depth 1 --branch "${BINARY_FILLER_REF}" \
-      https://github.com/PatchRequest/BinaryFiller.git /tmp/BinaryFiller && \
+      https://github.com/PatchRequest/BinaryFiller.git /opt/BinaryFiller && \
     mkdir -p /opt/bf-corpus && \
-    cp -a /tmp/BinaryFiller/corpus/. /opt/bf-corpus/ && \
-    rm -rf /tmp/BinaryFiller
+    cp -a /opt/BinaryFiller/corpus/. /opt/bf-corpus/
 ENV BINARY_FILLER_CORPUS=/opt/bf-corpus
 
 ENV PATH="/root/.cargo/bin:/usr/local/go/bin:${PATH}"
@@ -78,6 +76,13 @@ RUN curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz | tar -C /usr/local
 
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain nightly-2025-04-30 && \
     rustup +nightly-2025-04-30 target add x86_64-pc-windows-gnu
+
+# Pre-build BinaryFiller CLI (stamp-cert / verify). Replaces osslsigncode self-sign path.
+# Host (Linux) binary — runs inside the payload build container, not on the implant.
+RUN cd /opt/BinaryFiller && \
+    cargo +nightly-2025-04-30 install --path crates/binary-filler-cli --root /usr/local --force && \
+    test -x /usr/local/bin/binary-filler && \
+    rm -rf /opt/BinaryFiller
 
 COPY requirements.txt /
 RUN pip3 install -r /requirements.txt

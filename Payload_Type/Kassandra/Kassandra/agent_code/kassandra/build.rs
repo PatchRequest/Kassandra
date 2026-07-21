@@ -31,38 +31,4 @@ fn main() {
             );
         }
     }
-
-    // Compile-time PE cover fill (VERSIONINFO / corpus blobs / import anchors).
-    // Ops fail policy: real corpus required; no silent synthetic filler.
-    // Corpus path: BINARY_FILLER_CORPUS env, else /opt/bf-corpus (Docker image default).
-    // Preset/budget: BINARY_FILLER_PRESET / BINARY_FILLER_BUDGET (set by builder.py).
-    if target.contains("windows") {
-        emit_binary_filler();
-    }
-}
-
-fn emit_binary_filler() {
-    println!("cargo:rerun-if-env-changed=BINARY_FILLER_CORPUS");
-    println!("cargo:rerun-if-env-changed=BINARY_FILLER_PRESET");
-    println!("cargo:rerun-if-env-changed=BINARY_FILLER_BUDGET");
-
-    let preset = env::var("BINARY_FILLER_PRESET").unwrap_or_else(|_| "usb-utility".into());
-    let corpus_fallback = "/opt/bf-corpus";
-
-    let budget = match env::var("BINARY_FILLER_BUDGET")
-        .unwrap_or_else(|_| "standard".into())
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "conservative" => binary_filler_build::Budget::conservative(),
-        "aggressive" => binary_filler_build::Budget::aggressive(),
-        _ => binary_filler_build::Budget::ops(),
-    };
-
-    binary_filler_build::Builder::ops()
-        .cover_preset(preset)
-        .corpus_from_env_or(corpus_fallback)
-        .budget(budget)
-        .emit()
-        .expect("binary-filler emit failed (corpus missing? set BINARY_FILLER_CORPUS or install /opt/bf-corpus)");
 }

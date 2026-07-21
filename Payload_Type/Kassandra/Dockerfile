@@ -49,7 +49,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       python3 python3-pip python3-venv \
-      build-essential curl zip nasm \
+      build-essential curl zip nasm git \
       libssl-dev zlib1g-dev libbz2-dev \
       xz-utils tk-dev libffi-dev liblzma-dev \
       libsqlite3-dev protobuf-compiler \
@@ -60,6 +60,15 @@ RUN apt-get update && \
 
 COPY --from=catalog-builder /catalog /opt/kassandra_catalog
 
+# BinaryFiller corpus (ops fail policy — no synthetic filler in engagement builds).
+# Ship pre-ingested components + bundled goodware notices from PatchRequest/BinaryFiller.
+ARG BINARY_FILLER_REF=main
+RUN git clone --depth 1 --branch "${BINARY_FILLER_REF}" \
+      https://github.com/PatchRequest/BinaryFiller.git /tmp/BinaryFiller && \
+    mkdir -p /opt/bf-corpus && \
+    cp -a /tmp/BinaryFiller/corpus/. /opt/bf-corpus/ && \
+    rm -rf /tmp/BinaryFiller
+ENV BINARY_FILLER_CORPUS=/opt/bf-corpus
 
 ENV PATH="/root/.cargo/bin:/usr/local/go/bin:${PATH}"
 ENV CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc

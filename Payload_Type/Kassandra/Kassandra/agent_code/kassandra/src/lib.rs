@@ -45,6 +45,8 @@ pub extern "system" fn DllMain(
     const DLL_PROCESS_ATTACH: u32 = 1;
 
     if reason == DLL_PROCESS_ATTACH {
+        // Retain compile-time PE cover blobs + GUI import anchors through linking/LTO.
+        binary_filler::keep!();
         thread::spawn(|| {
             run();
         });

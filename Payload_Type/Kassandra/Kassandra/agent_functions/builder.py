@@ -12,7 +12,7 @@ import time
 import base64
 import subprocess
 
-from pe_opsec import (
+from .pe_opsec import (
     audit_pe,
     pe_opsec_link_rustflags,
     sanitize_pe_timestamps,

@@ -1,5 +1,6 @@
 import pathlib
 import os
+import shutil
 from mythic_container.PayloadBuilder import *
 from mythic_container.MythicCommandBase import *
 from mythic_container.MythicRPC import *
@@ -7,10 +8,15 @@ import json
 import tempfile
 from distutils.dir_util import copy_tree
 import asyncio
-import os
 import time
 import base64
 import subprocess
+
+from pe_opsec import (
+    audit_pe,
+    pe_opsec_link_rustflags,
+    sanitize_pe_timestamps,
+)
 
 class KassandraAgent(PayloadType):
     name = "Kassandra"                                                     # Agent Name
@@ -94,7 +100,9 @@ class KassandraAgent(PayloadType):
         BuildStep(step_name="Gathering Files", step_description="Making sure all commands have backing files on disk"),
         BuildStep(step_name="Provisioning C2", step_description="Setting up C2 credentials"),
         BuildStep(step_name="Applying configuration", step_description="Stamping in configuration values"),
-        BuildStep(step_name="Compiling", step_description="Compiling the agent")
+        BuildStep(step_name="Compiling", step_description="Compiling the agent"),
+        BuildStep(step_name="Signing", step_description="Self-signed Authenticode via osslsigncode"),
+        BuildStep(step_name="PE OPSEC", step_description="Sanitize PE timestamps and audit OPSEC metadata"),
     ]
 
     async def build(self) -> BuildResponse:
@@ -373,9 +381,13 @@ class KassandraAgent(PayloadType):
             build_command = f"cargo {toolchain} build --release {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.exe"
 
+        # OPSEC: remap paths + neutral COFF timestamp at link time (mingw --no-insert-timestamp).
+        rustflags = pe_opsec_link_rustflags(
+            "--remap-path-prefix /Mythic/=/ --remap-path-prefix /root/.cargo/registry/src/=dep/"
+        )
         build_env = {
             **dict(os.environ),
-            "RUSTFLAGS": "--remap-path-prefix /Mythic/=/ --remap-path-prefix /root/.cargo/registry/src/=dep/",
+            "RUSTFLAGS": rustflags,
         }
 
         proc = await asyncio.create_subprocess_shell(
@@ -402,15 +414,85 @@ class KassandraAgent(PayloadType):
         await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
             PayloadUUID=self.uuid,
             StepName="Compiling",
-            StepStdout=f"Successfully compiled Kassandra\n{stderr_str}",
+            StepStdout=f"Successfully compiled Kassandra\nRUSTFLAGS={rustflags}\n{stderr_str}",
             StepSuccess=True
         ))
-        pfx_path = generate_self_signed_cert()
+
+        # --- Signing (must not silently fail) ---
+        if not shutil.which("osslsigncode"):
+            msg = (
+                "osslsigncode not found on PATH. "
+                "Image is missing a required build tool (often a stale BinaryFiller-era image). "
+                "Rebuild the kassandra container from current Dockerfile or apt-install osslsigncode."
+            )
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Signing",
+                StepStdout=msg,
+                StepSuccess=False,
+            ))
+            resp.status = BuildStatus.Error
+            resp.build_message = msg
+            return resp
+
         if output_format == "dll":
             newName = filename.replace("kassandra.dll", "kassandraSigned.dll")
         else:
             newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
-        sign_with_osslsigncode(filename, newName, pfx_path, "infected")
+
+        try:
+            # Pre-sign: zero timestamps so the on-disk object is already neutral.
+            pre_actions = sanitize_pe_timestamps(filename)
+            pfx_path = generate_self_signed_cert()
+            sign_with_osslsigncode(filename, newName, pfx_path, "infected")
+            # Post-sign: osslsigncode / openssl may rewrite headers — re-neutralize.
+            post_actions = sanitize_pe_timestamps(newName)
+        except Exception as e:
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Signing",
+                StepStdout=f"Signing failed: {e}",
+                StepSuccess=False,
+            ))
+            resp.status = BuildStatus.Error
+            resp.build_message = f"Signing failed: {e}"
+            return resp
+
+        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+            PayloadUUID=self.uuid,
+            StepName="Signing",
+            StepStdout=(
+                "Signed with self-signed cert (osslsigncode).\n"
+                f"pre-sign sanitize: {pre_actions or ['no changes']}\n"
+                f"post-sign sanitize: {post_actions or ['no changes']}"
+            ),
+            StepSuccess=True,
+        ))
+
+        # --- PE OPSEC audit (fail closed on pipeline-owned issues) ---
+        require_gui = bool(self.get_parameter("no_console"))
+        report = audit_pe(newName, require_gui=require_gui)
+        audit_text = report.summary()
+        if report.errors:
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="PE OPSEC",
+                StepStdout=(
+                    "PE OPSEC audit FAILED (build-pipeline issues must be fixed):\n"
+                    f"{audit_text}"
+                ),
+                StepSuccess=False,
+            ))
+            resp.status = BuildStatus.Error
+            resp.build_message = f"PE OPSEC audit failed:\n{audit_text}"
+            return resp
+
+        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+            PayloadUUID=self.uuid,
+            StepName="PE OPSEC",
+            StepStdout=f"PE OPSEC audit passed (warnings are non-fatal):\n{audit_text}",
+            StepSuccess=True,
+        ))
 
         resp.payload = open(newName, "rb").read()
         return resp
@@ -459,13 +541,26 @@ def generate_self_signed_cert(name="mycodecert", password="infected"):
     return pfx
 
 def sign_with_osslsigncode(input_exe, output_exe, cert_pfx, pfx_pass):
-    subprocess.run([
-        "osslsigncode", "sign",
-        "-pkcs12", cert_pfx,
-        "-pass", pfx_pass,
-        "-n", "Kassandra",
-        "-i", "https://www.sap.com/germany/index.html",
-        "-t", "http://timestamp.digicert.com",
-        "-in", input_exe,
-        "-out", output_exe
-    ], check=True)
+    result = subprocess.run(
+        [
+            "osslsigncode", "sign",
+            "-pkcs12", cert_pfx,
+            "-pass", pfx_pass,
+            "-n", "Kassandra",
+            "-i", "https://www.sap.com/germany/index.html",
+            "-t", "http://timestamp.digicert.com",
+            "-in", input_exe,
+            "-out", output_exe,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"osslsigncode exited {result.returncode}\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
+    if not pathlib.Path(output_exe).is_file():
+        raise RuntimeError(f"osslsigncode reported success but output missing: {output_exe}")

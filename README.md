@@ -1,6 +1,6 @@
 # Kassandra — Rust Mythic Agent
 
-**Kassandra** is a custom [Mythic](https://github.com/its-a-feature/Mythic) C2 agent written in **Rust**, packaged as a **Python payload-type container**. It targets **Windows x86_64**, cross-compiled from Linux via `x86_64-pc-windows-gnu`.
+**Kassandra** is a custom [Mythic](https://github.com/its-a-feature/Mythic) C2 agent written in **Rust**, packaged as a **Python payload-type container**. It targets **Windows x86_64**, cross-compiled from Linux via `x86_64-pc-windows-gnu`. Build as **EXE**, **DLL**, or **shellcode** (Donut).
 
 > This public release does not include every private obfuscation / defense-evasion technique. Some components are simplified intentionally. The full private build remains controlled red-team use only.
 
@@ -122,25 +122,34 @@ Translation container **`KassandraTranslator`** is a JSON pass-through (`mythic_
 
 Filesystem (ls/rm/mkdir/mv/cp/touch/pwd), upload/download, process list (`ps` / `psw`), screenshot, selfdelete, selfclone, ping, exit.
 
+### Shellcode output ([Donut](https://github.com/TheWover/donut))
+
+Build `output=shellcode` and the agent is compiled as a normal EXE, then converted to position-independent shellcode with Donut (same idea as Mythic Apollo).
+
+| Setting | Options | Default |
+|---------|---------|---------|
+| `shellcode_format` | Binary, Base64, C, Ruby, Python, Powershell, C#, Hex | Binary |
+| `shellcode_bypass` | None / Abort on fail / Continue on fail | Continue on fail |
+
+Flow: **cargo EXE → PE OPSEC audit → Donut (`-x3 -k2 -f… -b…`) → `.bin` (or chosen format)**. Authenticode is skipped for shellcode (would only bloat Donut input). Use any standard shellcode runner / injector on target.
+
 ---
 
 ## Build parameters
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `output` | exe / dll / **shellcode** | exe | Output format. `shellcode` runs the compiled EXE through [Donut](https://github.com/TheWover/donut) (same approach as Apollo) |
-| `shellcode_format` | Binary / Base64 / C / Ruby / Python / Powershell / C# / Hex | Binary | Donut `-f` format (only when `output=shellcode`) |
-| `shellcode_bypass` | None / Abort on fail / Continue on fail | Continue on fail | Donut AMSI/WLDP/ETW bypass (only when `output=shellcode`) |
-| `adjust_filename` | bool | **true** | Auto-set download extension (`.exe` / `.dll` / `.bin` / …) |
+| `output` | **exe** / dll / **shellcode** | exe | Payload format |
+| `shellcode_format` | see above | Binary | Donut format (only if `output=shellcode`) |
+| `shellcode_bypass` | see above | Continue on fail | Donut AMSI/WLDP/ETW bypass (only if `output=shellcode`) |
+| `adjust_filename` | bool | **true** | Auto extension (`.exe` / `.dll` / `.bin` / …) |
 | `chunk_size` | string | 4096 | Upload/download chunk size |
 | `busywork_intensity` | off / low / medium / high / ultra | **medium** | BusyWork intensity for `idle` / startup |
 | `no_console` | bool | **true** | `windows_subsystem = windows` |
-| `debug_log` | bool | **false** | Lab only: lifecycle log → `%TEMP%\kassandra_debug.log` (cargo feature `debug_log`) |
+| `debug_log` | bool | **false** | Lab only: lifecycle log → `%TEMP%\kassandra_debug.log` |
 | `tailscale_protocol` | http / tcp | http | Protocol inside WireGuard |
 | `doh` | off / cloudflare / google / custom | off | DoH for Tailscale DNS |
 | `doh_url` | string | — | Custom DoH URL when `doh=custom` |
-
-**Shellcode notes:** always built from an EXE (not DLL). Authenticode signing is skipped for the intermediate PE (cert would only bloat Donut input). PE OPSEC audit still runs on the intermediate EXE before packing. Donut flags match Apollo: `-x3 -k2` plus selected format/bypass.
 
 **Production defaults:** `no_console=true`, `busywork=medium`, `debug_log=false`.  
 **Lab:** prefer `debug_log=true` and `busywork=off` or `low` while debugging tasking.
@@ -181,7 +190,7 @@ Related repos:
 
 ```text
 Payload_Type/Kassandra/
-  Dockerfile                 # catalog-builder + runtime
+  Dockerfile                 # catalog-builder + runtime (+ Donut)
   build_catalog.sh
   main.py
   translator/translator.py
@@ -203,8 +212,9 @@ Ideas baked into the current public tree:
 2. **Loaders out of the implant** — reflective DLLs staged from C2; optional `loadLoader` for OPSEC timing.
 3. **Catalog as container content** — operators run tools without manual uploads; agent only sees normal BOF/DOT tasks.
 4. **Syscalls via a maintained crate** — CallGhost instead of a bespoke Hell’s Hall + ASM stack.
-5. **Silent production build** — no debug file/stderr unless `debug_log` is explicitly enabled at build time.
-6. **Self-protect by default** — DACL lockdown on EXE and DLL entry (lab builds should not permanently disable this).
+5. **Shellcode via Donut** — optional PIC output for inject workflows without a separate packing pipeline.
+6. **Silent production build** — no debug file/stderr unless `debug_log` is explicitly enabled at build time.
+7. **Self-protect by default** — DACL lockdown on EXE and DLL entry (lab builds should not permanently disable this).
 
 ---
 

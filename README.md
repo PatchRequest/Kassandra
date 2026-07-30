@@ -122,6 +122,8 @@ Translation container **`KassandraTranslator`** is a JSON pass-through (`mythic_
 
 Filesystem (ls/rm/mkdir/mv/cp/touch/pwd), upload/download, process list (`ps` / `psw`), screenshot, selfdelete, selfclone, ping, exit.
 
+**`selfclone`** (default **earlybird**): PPID-spoof a sacrificial host (`CREATE_SUSPENDED` under e.g. `explorer.exe`), inject Donut shellcode of this payload via `NtQueueApcThread`, resume. Process tree looks like `explorer → RuntimeBroker` (not agent → child). Mode `process` keeps the legacy “spawn own EXE under spoofed PPID” behavior.
+
 ### Shellcode output ([Donut](https://github.com/TheWover/donut))
 
 Build `output=shellcode` and the agent is compiled as a normal EXE, then converted to position-independent shellcode with Donut (same idea as Mythic Apollo).

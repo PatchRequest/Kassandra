@@ -132,6 +132,10 @@ AES-256-CBC with HMAC-SHA256 (encrypt-then-MAC). Key derivation uses HMAC with d
 
 `ping`, `exit`, `ls`, `rm`, `mkdir`, `mv`, `cp`, `touch`, `pwd`, `upload`, `download`, `ps`, `psw` (detailed process listing), `screenshot`, `selfdelete`, `selfclone`, `executeBOF`, `executeDOT`, `executePY`, `executeRemote`, `listRemote`, `start_pivot`, `stop_pivot`, `list_pivot`, `socks`.
 
+**`selfclone` modes:**
+- **`earlybird`** (default): Mythic container loads this callback’s payload (`PayloadGetContent`); if PE → Donut to PIC; stages file for agent. Agent: find parent (e.g. explorer), `CreateProcessW(host, CREATE_SUSPENDED | PPID spoof)`, remote alloc/write/protect shellcode, `NtQueueApcThread` primary thread, `NtResumeThread`.
+- **`process`**: legacy `CreateProcessW` of on-disk module path under spoofed PPID (weak for shellcode-hosted agents where module path is the runner).
+
 ## Lab Test Setup (ALWAYS use this when working on the agent)
 
 This is the permanent end-to-end lab. Do not invent a different path mid-session.

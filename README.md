@@ -128,15 +128,15 @@ Spawn a **second agent** without a direct parent/child link to the current impla
 
 | Mode | Default | Behavior |
 |------|---------|----------|
-| **`earlybird`** | yes | Mythic loads this payload’s artifact; if PE → [Donut](https://github.com/TheWover/donut) to PIC. Agent: find `parent` (e.g. `explorer.exe`), `CreateProcessW(host, CREATE_SUSPENDED)` with **PPID spoof**, write shellcode, `NtQueueApcThread` on the primary thread, `NtResumeThread`. |
-| **`process`** | no | Legacy: `CreateProcessW` of the on-disk module path under spoofed PPID only (weak if the agent is already shellcode-hosted). |
+| **`earlybird`** | yes | Mythic loads this payload’s artifact; if PE → [Donut](https://github.com/TheWover/donut) to PIC. Agent: `CreateProcessW(host, CREATE_SUSPENDED)`, write shellcode, `NtQueueApcThread`, `NtResumeThread`. |
+| **`process`** | no | Legacy: `CreateProcessW` of the on-disk module path (weak if the agent is already shellcode-hosted). |
 
 | Arg | Default | Meaning |
 |-----|---------|---------|
-| `parent` | `explorer.exe` | Spoofed parent process **name** |
+| `parent` | `explorer.exe` | Process **name** for PPID spoof. Special: **`self`** = **no spoof** (host is a real child of this agent). |
 | `host` | `C:\Windows\System32\RuntimeBroker.exe` | Sacrificial image (earlybird only) |
 
-Typical process tree after earlybird:
+Typical tree with spoof (`parent=explorer.exe`):
 
 ```text
 explorer.exe
@@ -144,9 +144,17 @@ explorer.exe
 kassandra_lab.exe         ← original agent (not parent of host)
 ```
 
+With `parent=self` (no spoof):
+
+```text
+kassandra_lab.exe
+  └── RuntimeBroker.exe   ← injected Kassandra (real child)
+```
+
 ```text
 selfclone
 selfclone -parent explorer.exe -host C:\Windows\System32\RuntimeBroker.exe
+selfclone -parent self
 selfclone -mode process -parent explorer.exe
 ```
 

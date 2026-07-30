@@ -122,18 +122,44 @@ Translation container **`KassandraTranslator`** is a JSON pass-through (`mythic_
 
 Filesystem (ls/rm/mkdir/mv/cp/touch/pwd), upload/download, process list (`ps` / `psw`), screenshot, selfdelete, selfclone, ping, exit.
 
-**`selfclone`** (default **earlybird**): PPID-spoof a sacrificial host (`CREATE_SUSPENDED` under e.g. `explorer.exe`), inject Donut shellcode of this payload via `NtQueueApcThread`, resume. Process tree looks like `explorer → RuntimeBroker` (not agent → child). Mode `process` keeps the legacy “spawn own EXE under spoofed PPID” behavior.
+### `selfclone` — Early Bird + PPID spoof
+
+Spawn a **second agent** without a direct parent/child link to the current implant.
+
+| Mode | Default | Behavior |
+|------|---------|----------|
+| **`earlybird`** | yes | Mythic loads this payload’s artifact; if PE → [Donut](https://github.com/TheWover/donut) to PIC. Agent: find `parent` (e.g. `explorer.exe`), `CreateProcessW(host, CREATE_SUSPENDED)` with **PPID spoof**, write shellcode, `NtQueueApcThread` on the primary thread, `NtResumeThread`. |
+| **`process`** | no | Legacy: `CreateProcessW` of the on-disk module path under spoofed PPID only (weak if the agent is already shellcode-hosted). |
+
+| Arg | Default | Meaning |
+|-----|---------|---------|
+| `parent` | `explorer.exe` | Spoofed parent process **name** |
+| `host` | `C:\Windows\System32\RuntimeBroker.exe` | Sacrificial image (earlybird only) |
+
+Typical process tree after earlybird:
+
+```text
+explorer.exe
+  └── RuntimeBroker.exe   ← injected Kassandra (new callback)
+kassandra_lab.exe         ← original agent (not parent of host)
+```
+
+```text
+selfclone
+selfclone -parent explorer.exe -host C:\Windows\System32\RuntimeBroker.exe
+selfclone -mode process -parent explorer.exe
+```
 
 ### Shellcode output ([Donut](https://github.com/TheWover/donut))
 
-Build `output=shellcode` and the agent is compiled as a normal EXE, then converted to position-independent shellcode with Donut (same idea as Mythic Apollo).
+Build `output=shellcode` and the agent is compiled as a normal EXE, then converted to position-independent shellcode with Donut (same idea as Mythic Apollo). That same Donut path is reused at runtime by **`selfclone earlybird`** when the callback’s payload is still a PE.
 
 | Setting | Options | Default |
 |---------|---------|---------|
 | `shellcode_format` | Binary, Base64, C, Ruby, Python, Powershell, C#, Hex | Binary |
 | `shellcode_bypass` | None / Abort on fail / Continue on fail | Continue on fail |
 
-Flow: **cargo EXE → PE OPSEC audit → Donut (`-x3 -k2 -f… -b…`) → `.bin` (or chosen format)**. Authenticode is skipped for shellcode (would only bloat Donut input). Use any standard shellcode runner / injector on target.
+Flow (payload build): **cargo EXE → PE OPSEC audit → Donut (`-x3 -k2 -f… -b…`) → `.bin`**. Authenticode is skipped for shellcode output.
 
 ---
 
@@ -214,9 +240,10 @@ Ideas baked into the current public tree:
 2. **Loaders out of the implant** — reflective DLLs staged from C2; optional `loadLoader` for OPSEC timing.
 3. **Catalog as container content** — operators run tools without manual uploads; agent only sees normal BOF/DOT tasks.
 4. **Syscalls via a maintained crate** — CallGhost instead of a bespoke Hell’s Hall + ASM stack.
-5. **Shellcode via Donut** — optional PIC output for inject workflows without a separate packing pipeline.
-6. **Silent production build** — no debug file/stderr unless `debug_log` is explicitly enabled at build time.
-7. **Self-protect by default** — DACL lockdown on EXE and DLL entry (lab builds should not permanently disable this).
+5. **Shellcode via Donut** — optional PIC output for inject workflows; same tooling feeds **selfclone earlybird**.
+6. **Early Bird selfclone** — PPID-spoofed sacrificial host + APC shellcode so the new callback is not a child of the implant.
+7. **Silent production build** — no debug file/stderr unless `debug_log` is explicitly enabled at build time.
+8. **Self-protect by default** — DACL lockdown on EXE and DLL entry (lab builds should not permanently disable this).
 
 ---
 

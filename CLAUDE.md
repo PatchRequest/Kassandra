@@ -46,14 +46,15 @@ Payload_Type/Kassandra/
 
 1. **C2 provisioning**: Calls Mythic RPC to get credentials from the selected C2 profile (S3 bootstrap keys, Tailscale pre-auth key, or plain HTTP config).
 2. **Config stamping**: Copies agent_code to a temp directory, does string replacement on `config.rs` -- all `%PLACEHOLDER%` values become concrete values (UUID, host, port, S3 keys, Tailscale auth, BusyWork intensity, etc.).
-3. **EXE vs DLL**: For DLL output, `main.rs` is deleted and `[lib] crate-type = ["cdylib"]` is appended to Cargo.toml. For EXE, `lib.rs` is deleted.
+3. **EXE vs DLL**: For DLL output, `main.rs` is deleted and `[lib] crate-type = ["cdylib"]` is appended to Cargo.toml. For EXE / shellcode, `lib.rs` is deleted.
 4. **Cargo build**: `cargo +nightly-2025-04-30 build --release --target x86_64-pc-windows-gnu` with conditional `--features tailscale,no_console`.
-5. **Signing**: Self-signed certificate via openssl, then `osslsigncode` signs the binary.
+5. **Signing**: Self-signed certificate via openssl, then `osslsigncode` signs the binary (skipped for shellcode — Authenticode only bloats Donut input).
+6. **Donut (shellcode only)**: Intermediate EXE → `/opt/donut/donut -x3 -k2 -o loader.bin -i <exe> -fN -bN` (same flags/flow as Apollo). Formats: Binary/Base64/C/Ruby/Python/Powershell/C#/Hex.
 
 ### Docker stages
 
 - **Stage 1 (catalog-builder)**: Clones TrustedSec CS-SA-BOF, Outflank C2-Tool-Collection, Flangvik SharpCollection at pinned commits. Compiles BOFs with mingw, .NET tools with dotnet SDK. Outputs `/catalog/` with `manifest.json`.
-- **Stage 2 (runtime)**: Installs Rust nightly, Go, mingw, osslsigncode. Pre-builds Tailscale FFI static library (`libtailscale_ffi.a`) via Go cross-compilation. Copies catalog from stage 1 to `/opt/kassandra_catalog`.
+- **Stage 2 (runtime)**: Installs Rust nightly, Go, mingw, osslsigncode, Donut (`/opt/donut/donut` from TheWover v1.1 release). Pre-builds Tailscale FFI static library (`libtailscale_ffi.a`) via Go cross-compilation. Copies catalog from stage 1 to `/opt/kassandra_catalog`.
 
 ### Cargo features
 

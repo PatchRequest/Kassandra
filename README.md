@@ -128,7 +128,10 @@ Filesystem (ls/rm/mkdir/mv/cp/touch/pwd), upload/download, process list (`ps` / 
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `output` | exe / dll | exe | Output format |
+| `output` | exe / dll / **shellcode** | exe | Output format. `shellcode` runs the compiled EXE through [Donut](https://github.com/TheWover/donut) (same approach as Apollo) |
+| `shellcode_format` | Binary / Base64 / C / Ruby / Python / Powershell / C# / Hex | Binary | Donut `-f` format (only when `output=shellcode`) |
+| `shellcode_bypass` | None / Abort on fail / Continue on fail | Continue on fail | Donut AMSI/WLDP/ETW bypass (only when `output=shellcode`) |
+| `adjust_filename` | bool | **true** | Auto-set download extension (`.exe` / `.dll` / `.bin` / …) |
 | `chunk_size` | string | 4096 | Upload/download chunk size |
 | `busywork_intensity` | off / low / medium / high / ultra | **medium** | BusyWork intensity for `idle` / startup |
 | `no_console` | bool | **true** | `windows_subsystem = windows` |
@@ -136,6 +139,8 @@ Filesystem (ls/rm/mkdir/mv/cp/touch/pwd), upload/download, process list (`ps` / 
 | `tailscale_protocol` | http / tcp | http | Protocol inside WireGuard |
 | `doh` | off / cloudflare / google / custom | off | DoH for Tailscale DNS |
 | `doh_url` | string | — | Custom DoH URL when `doh=custom` |
+
+**Shellcode notes:** always built from an EXE (not DLL). Authenticode signing is skipped for the intermediate PE (cert would only bloat Donut input). PE OPSEC audit still runs on the intermediate EXE before packing. Donut flags match Apollo: `-x3 -k2` plus selected format/bypass.
 
 **Production defaults:** `no_console=true`, `busywork=medium`, `debug_log=false`.  
 **Lab:** prefer `debug_log=true` and `busywork=off` or `low` while debugging tasking.
@@ -210,8 +215,10 @@ Series on [patchi.fyi](https://patchi.fyi):
 - [Architecture Overview](https://patchi.fyi/blog/kassandra-architecture-overview/)
 - [Hell's Hall Syscalls](https://patchi.fyi/blog/kassandra-hells-hall-syscalls/) *(historical; agent now uses CallGhost)*
 - [S3 Transport](https://patchi.fyi/blog/kassandra-s3-transport/)
-- [In-Memory Execution](https://patchi.fyi/blog/kassandra-in-memory-execution/)
+- [In-Memory Execution](https://patchi.fyi/blog/kassandra-in-memory-execution/) *(historical for BOF/.NET; see reflective loading)*
 - [Process Hardening](https://patchi.fyi/blog/kassandra-process-hardening/)
+- [BusyWork Integration](https://patchi.fyi/blog/kassandra-busywork-integration/)
+- [Reflective Loading](https://patchi.fyi/blog/kassandra-reflective-loading/)
 
 ---
 

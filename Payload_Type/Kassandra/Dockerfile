@@ -64,6 +64,17 @@ COPY --from=catalog-builder /catalog /opt/kassandra_catalog
 ENV PATH="/root/.cargo/bin:/usr/local/go/bin:${PATH}"
 ENV CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
 
+# Donut (TheWover) — convert built PE EXE to position-independent shellcode.
+# Same tooling Apollo uses for output_type=Shellcode. Binary from official v1.1 release.
+ARG DONUT_VERSION=v1.1
+RUN mkdir -p /opt/donut /tmp/donut_src && \
+    curl -fsSL -o /tmp/donut.tar.gz \
+      "https://github.com/TheWover/donut/releases/download/${DONUT_VERSION}/donut_${DONUT_VERSION}.tar.gz" && \
+    tar -xzf /tmp/donut.tar.gz -C /tmp/donut_src && \
+    install -m 0755 /tmp/donut_src/donut /opt/donut/donut && \
+    ln -sf /opt/donut/donut /usr/local/bin/donut && \
+    rm -rf /tmp/donut.tar.gz /tmp/donut_src
+
 # Install Go (needed to build tailscale FFI library)
 RUN curl -fsSL https://go.dev/dl/go1.24.2.linux-amd64.tar.gz | tar -C /usr/local -xzf -
 

